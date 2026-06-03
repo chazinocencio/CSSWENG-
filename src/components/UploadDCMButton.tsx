@@ -1,5 +1,6 @@
 import { Text, TouchableOpacity, View } from "react-native";
 import * as edp from "expo-document-picker";
+import * as fs from "expo-file-system";
 
 export default function UploadDCMButton({UploadCancelled, UploadInvalid, UploadSuccess, ButtonText, ButtonClass, TextClass}) {
 	const GetDocument = async () => {
@@ -13,7 +14,7 @@ export default function UploadDCMButton({UploadCancelled, UploadInvalid, UploadS
 				const file = documents.assets[0];
 				return !file.name.toLowerCase().endsWith(".dcm")
 					? UploadInvalid()
-					: UploadSuccess(file.name);
+					: UploadSuccess(file.uri);
 			} else {
 				return UploadCancelled();
 			}
