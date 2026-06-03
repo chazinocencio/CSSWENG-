@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Text, TouchableOpacity, View } from "react-native";
-import UploadDCMButton from "../components/UploadDCMButton.tsx";
+import UploadDCMButton from "../components/UploadDCMButton";
 
 export default function Page() {
 	const [file, setFile] = useState<string | null>("");
@@ -13,7 +13,7 @@ export default function Page() {
 		else
 			return <Text className="text-xl font-light text-red-500">Invalid DICOM file.</Text>
 	};
-	const UploadSuccess = (f) => { setFile(f); };
+	const UploadSuccess = (f : string) => { setFile(f); };
 	const UploadInvalid = () => { setFile(null); };
 	const UploadCancelled = () => { setFile(""); };
 	return (
