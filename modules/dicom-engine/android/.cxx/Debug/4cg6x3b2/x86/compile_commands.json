@@ -1,0 +1,12 @@
+[
+{
+  "directory": "C:/Users/Joramm/StudioProjects/CSSWENG-/modules/dicom-engine/android/.cxx/Debug/4cg6x3b2/x86",
+  "command": "C:\\Users\\Joramm\\AppData\\Local\\Android\\Sdk\\ndk\\27.0.12077973\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang++.exe --target=i686-none-linux-android24 --sysroot=C:/Users/Joramm/AppData/Local/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/windows-x86_64/sysroot -Ddicom_native_lib_EXPORTS -IC:/Users/Joramm/StudioProjects/CSSWENG-/modules/dicom-engine/cpp/. -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-limit-debug-info  -fPIC -std=gnu++17 -o CMakeFiles\\dicom_native_lib.dir\\DicomParser.cpp.o -c C:\\Users\\Joramm\\StudioProjects\\CSSWENG-\\modules\\dicom-engine\\cpp\\DicomParser.cpp",
+  "file": "C:\\Users\\Joramm\\StudioProjects\\CSSWENG-\\modules\\dicom-engine\\cpp\\DicomParser.cpp"
+},
+{
+  "directory": "C:/Users/Joramm/StudioProjects/CSSWENG-/modules/dicom-engine/android/.cxx/Debug/4cg6x3b2/x86",
+  "command": "C:\\Users\\Joramm\\AppData\\Local\\Android\\Sdk\\ndk\\27.0.12077973\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang++.exe --target=i686-none-linux-android24 --sysroot=C:/Users/Joramm/AppData/Local/Android/Sdk/ndk/27.0.12077973/toolchains/llvm/prebuilt/windows-x86_64/sysroot -Ddicom_native_lib_EXPORTS -IC:/Users/Joramm/StudioProjects/CSSWENG-/modules/dicom-engine/cpp/. -g -DANDROID -fdata-sections -ffunction-sections -funwind-tables -fstack-protector-strong -no-canonical-prefixes -D_FORTIFY_SOURCE=2 -Wformat -Werror=format-security   -fno-limit-debug-info  -fPIC -std=gnu++17 -o CMakeFiles\\dicom_native_lib.dir\\native-lib.cpp.o -c C:\\Users\\Joramm\\StudioProjects\\CSSWENG-\\modules\\dicom-engine\\cpp\\native-lib.cpp",
+  "file": "C:\\Users\\Joramm\\StudioProjects\\CSSWENG-\\modules\\dicom-engine\\cpp\\native-lib.cpp"
+}
+]

@@ -1,0 +1,3 @@
+C:/Users/Joramm/StudioProjects/CSSWENG-/modules/dicom-engine/android/.cxx/Debug/4cg6x3b2/x86/CMakeFiles/dicom_native_lib.dir
+C:/Users/Joramm/StudioProjects/CSSWENG-/modules/dicom-engine/android/.cxx/Debug/4cg6x3b2/x86/CMakeFiles/edit_cache.dir
+C:/Users/Joramm/StudioProjects/CSSWENG-/modules/dicom-engine/android/.cxx/Debug/4cg6x3b2/x86/CMakeFiles/rebuild_cache.dir

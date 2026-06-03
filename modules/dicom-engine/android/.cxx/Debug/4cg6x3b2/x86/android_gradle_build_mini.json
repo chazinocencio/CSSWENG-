@@ -1,0 +1,27 @@
+{
+  "buildFiles": [
+    "C:\\Users\\Joramm\\StudioProjects\\CSSWENG-\\modules\\dicom-engine\\cpp\\CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "C:\\Users\\Joramm\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+      "-C",
+      "C:\\Users\\Joramm\\StudioProjects\\CSSWENG-\\modules\\dicom-engine\\android\\.cxx\\Debug\\4cg6x3b2\\x86",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "C:\\Users\\Joramm\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+    "-C",
+    "C:\\Users\\Joramm\\StudioProjects\\CSSWENG-\\modules\\dicom-engine\\android\\.cxx\\Debug\\4cg6x3b2\\x86",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "dicom_native_lib::@6890427a1f51a3e7e1df": {
+      "artifactName": "dicom_native_lib",
+      "abi": "x86",
+      "output": "C:\\Users\\Joramm\\StudioProjects\\CSSWENG-\\modules\\dicom-engine\\android\\build\\intermediates\\cxx\\Debug\\4cg6x3b2\\obj\\x86\\libdicom_native_lib.so",
+      "runtimeFiles": []
+    }
+  }
+}
