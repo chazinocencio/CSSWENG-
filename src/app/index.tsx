@@ -6,7 +6,7 @@ export default function Page() {
 	const [file, setFile] = useState<string | null>("");
 	const [error, setError] = useState<string>("");
 	const PathText = () => {
-		if (file != null && file.length < 1)
+		if (file == null || file.length < 1)
 			return null;
 		else if (file != null)
 			return <Text className="text-xl font-light text-blue-500">{file}</Text>
