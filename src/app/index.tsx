@@ -1,5 +1,5 @@
 import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
+import { View, Text, Platform, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AnimatedIcon } from '@/components/animated-icon';
@@ -30,7 +30,7 @@ function getDevMenuHint() {
 
 export default function HomeScreen() {
   return (
-    <ThemedView style={styles.container}>
+	<ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
         <ThemedView style={styles.heroSection}>
           <AnimatedIcon />
@@ -59,6 +59,17 @@ export default function HomeScreen() {
       </SafeAreaView>
     </ThemedView>
   );
+  /* tailwind only works on react-native elements like <View> or <Text>
+  /* and not on components outside react-native like <ThemedView> or <ThemedText>
+  return (
+	<View className="flex-1 items-center justify-center bg-zinc-900">
+      <Text className="text-4xl text-blue-500 font-bold">Hello, Tailwind!</Text>
+      <View className="mt-4 px-6 py-3 bg-blue-500 rounded-full">
+        <Text className="text-white font-semibold">Tap Me</Text>
+      </View>
+    </View>
+  );
+  */
 }
 
 const styles = StyleSheet.create({
