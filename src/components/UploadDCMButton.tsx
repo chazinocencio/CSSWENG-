@@ -13,7 +13,7 @@ export default function UploadDCMButton({UploadCancelled, UploadInvalid, UploadS
 				const file = documents.assets[0];
 				return !file.name.toLowerCase().endsWith(".dcm")
 					? UploadInvalid()
-					: UploadSuccess(file);
+					: UploadSuccess(file.name);
 			} else {
 				return UploadCancelled();
 			}
