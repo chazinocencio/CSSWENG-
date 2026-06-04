@@ -1,0 +1,9 @@
+{
+  "name": "native-dicom",
+  "version": "1.0.0",
+  "description": "Native DICOM processing module",
+  "main": "index.ts",
+  "types": "index.ts",
+  "author": "Your Name",
+  "license": "MIT"
+}
