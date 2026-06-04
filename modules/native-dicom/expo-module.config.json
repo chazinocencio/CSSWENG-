@@ -1,0 +1,16 @@
+{
+  "platforms": [
+    "ios",
+    "android"
+  ],
+  "ios": {
+    "modules": [
+      "NativeDicomModule"
+    ]
+  },
+  "android": {
+    "modules": [
+      "modules.nativedicom.NativeDicomModule"
+    ]
+  }
+}
