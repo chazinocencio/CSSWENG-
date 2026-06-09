@@ -8,22 +8,21 @@ export default function Page() {
 
 	useEffect(() => {
 		try {
-			// 1. Create a dummy parser instance
-			const instanceId = NativeDicom.createParser("test/path/dummy.dcm");
+            // const instanceId = NativeDicom.createParser("/data/user/0/com.anonymous.mobiledicomviewer/files/test/sample.dcm");
+            const instanceId = NativeDicom.createParser("sample.dcm");
+
 
 			if (instanceId) {
-				// 2. Fetch the dummy metadata we set up in the "safe-to-sync" C++ code
 				const meta = NativeDicom.getMetaData(instanceId);
 				setMetaData(meta);
-				setTestResult("✅ Native Bridge Connected!");
+				setTestResult("Native Bridge Connected!");
 
-				// 3. Clean up
 				NativeDicom.releaseParser(instanceId);
 			} else {
-				setTestResult("❌ Failed to create parser instance.");
+				setTestResult("Failed to create parser instance.");
 			}
 		} catch (error) {
-			setTestResult(`❌ Error: ${error instanceof Error ? error.message : String(error)}`);
+			setTestResult(`Error: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}, []);
 

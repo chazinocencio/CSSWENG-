@@ -5,11 +5,14 @@
 #include <vector>
 #include <cstdint>
 #include <memory>
+#include <android/log.h>
 
-// Temporarily commented out until GDCM is integrated
-// namespace gdcm {
-//     class ImageReader;
-// }
+#define TAG "DicomParser"
+#define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+namespace gdcm {
+    class ImageReader;
+}
 
 //Non-Protected Health Information Metadata necessary for Image Rendering
 struct DicomMetaData {
@@ -28,8 +31,7 @@ private:
     DicomMetaData meta_data;
     bool isInitialized = false;
 
-    // Temporarily commented out until GDCM is integrated
-    // std::unique_ptr<gdcm::ImageReader> reader;
+    std::unique_ptr<gdcm::ImageReader> reader;
 
     bool parseDataset();
 
