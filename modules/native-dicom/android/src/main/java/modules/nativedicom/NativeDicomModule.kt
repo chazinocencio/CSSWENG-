@@ -7,6 +7,12 @@ class NativeDicomModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("NativeDicom")
 
+    /**
+     * Expo Module Definition
+     * These functions map the TypeScript calls to Kotlin, which then
+     * calls the 'external' (JNI) native methods defined below.
+     */
+
     Function("createParser") { path: String ->
       nativeCreateParser(path)
     }
@@ -24,6 +30,11 @@ class NativeDicomModule : Module() {
     }
   }
 
+  /**
+   * Native Declarations
+   * The 'external' keyword tells Kotlin that these functions are implemented 
+   * in C++ (NativeDicomJNI.cpp). The Android NDK links them by name.
+   */
   private external fun nativeCreateParser(path: String): String?
   private external fun nativeGetMetaData(id: String): Map<String, Any>?
   private external fun nativeGetFramePixels(id: String, frameIndex: Int): ByteArray?
@@ -31,6 +42,7 @@ class NativeDicomModule : Module() {
 
   companion object {
     init {
+      // This loads 'libNativeDicom.so' which contains our C++ logic
       System.loadLibrary("NativeDicom")
     }
   }

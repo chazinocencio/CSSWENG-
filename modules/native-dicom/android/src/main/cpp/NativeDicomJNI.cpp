@@ -44,18 +44,31 @@ extern "C" {
 static std::map<std::string, std::unique_ptr<DicomParser>> g_parsers;
 static int g_next_id = 1;
 
+/**
+ * JNI Implementation
+ * The function name follows a strict JNI convention:
+ * extern "C"
+ * Java_PackageName_ClassName_FunctionName
+ *
+ * JNIEnv* env: Provides functions to convert Java types to C++ types.
+ * jobject thiz: Reference to the Kotlin Module instance.
+ */
+
 extern "C"
 JNIEXPORT jstring JNICALL
 Java_modules_nativedicom_NativeDicomModule_nativeCreateParser(JNIEnv *env, jobject thiz, jstring path) {
+    // Convert Java String (jstring) to C++ std::string
     const char *nativePath = env->GetStringUTFChars(path, nullptr);
     std::string pathStr(nativePath);
     env->ReleaseStringUTFChars(path, nativePath);
 
+    // Call the core C++ logic (DicomParser)
     auto parser = std::make_unique<DicomParser>(pathStr);
     if (!parser->initialize()) {
         return nullptr;
     }
 
+    // Store the parser in a global map and return a unique ID to JS
     std::string id = std::to_string(g_next_id++);
     g_parsers[id] = std::move(parser);
     return env->NewStringUTF(id.c_str());
@@ -71,13 +84,16 @@ Java_modules_nativedicom_NativeDicomModule_nativeGetMetaData(JNIEnv *env, jobjec
     auto it = g_parsers.find(idStr);
     if (it == g_parsers.end()) return nullptr;
 
+    // Retrieve data from C++ class
     DicomMetaData meta = it->second->getMetaData();
 
+    // Build a Java HashMap to pass back to Kotlin/JS
     jclass cls = env->FindClass("java/util/HashMap");
     jmethodID init = env->GetMethodID(cls, "<init>", "()V");
     jobject map = env->NewObject(cls, init);
     jmethodID put = env->GetMethodID(cls, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
 
+    // Helper to wrap primitive C++ ints into Java Integer objects
     auto putInt = [&](const char* key, int val) {
         jclass intCls = env->FindClass("java/lang/Integer");
         jmethodID intInit = env->GetMethodID(intCls, "<init>", "(I)V");

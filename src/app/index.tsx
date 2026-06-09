@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
-import { StyleSheet, Text, View, ScrollView } from "react-native";
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from "react-native";
+import { Link } from "expo-router";
+
+// Custom Module for DICOM Files
 import * as NativeDicom from "native-dicom";
+
 
 export default function Page() {
 	const [testResult, setTestResult] = useState<string>("Testing connection...");
@@ -47,6 +51,16 @@ export default function Page() {
 					</View>
 				</View>
 			)}
+
+            {/*Moves to page to test parsing sample.dcm*/}
+			<View className="mt-8 p-4 bg-blue-50 rounded-xl border border-blue-200">
+				<Link href="/asset-test" asChild>
+					<TouchableOpacity className="items-center py-2">
+						<Text className="text-blue-600 font-bold text-lg">Go to Parsing Test</Text>
+						<Text className="text-blue-400 text-sm text-center">Tests GDCM parsing of sample.dcm</Text>
+					</TouchableOpacity>
+				</Link>
+			</View>
 
 			<View className="flex-1 justify-end mb-8">
 				<Text className="text-center text-gray-400 text-sm">
