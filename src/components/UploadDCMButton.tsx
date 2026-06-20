@@ -15,15 +15,19 @@ export default function UploadDCMButton({UploadCancelled, UploadInvalid, UploadS
 	const GetDocument = async () => {
 		try {
 			const documents = await edp.getDocumentAsync({
-				type: 'application/dicom',
-				copyToCacheDirectory: false,
+				type: '*/*',
+				copyToCacheDirectory: true,
 				multiple: false,
 			});
 			if (!documents.canceled) {
 				const file = documents.assets[0];
 				return !file.name.toLowerCase().endsWith(".dcm")
-					? UploadInvalid()
-					: UploadSuccess(file.uri);
+			    ? UploadInvalid()
+				: UploadSuccess(file.uri);
+
+                console.log("minekaniko ni moniko ang makina ng minika ni monika"  + !file.name.toLowerCase().endsWith(".dcm") + file.name);
+                console.log(file.uri);
+                return UploadSuccess(file.uri);
 			} else {
 				return UploadCancelled();
 			}
