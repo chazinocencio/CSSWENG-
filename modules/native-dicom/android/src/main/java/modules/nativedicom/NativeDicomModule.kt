@@ -7,6 +7,15 @@ class NativeDicomModule : Module() {
   override fun definition() = ModuleDefinition {
     Name("NativeDicom")
 
+    OnCreate {
+      val runtime = appContext.runtime
+      val reactContext = runtime.reactContext
+      val jsRuntimePointer = reactContext?.javaScriptContextHolder?.get() ?: 0L
+      if (jsRuntimePointer != 0L) {
+        nativeInstallJSI(jsRuntimePointer)
+      }
+    }
+
     /**
      * Expo Module Definition
      * These functions map the TypeScript calls to Kotlin, which then
@@ -39,6 +48,7 @@ class NativeDicomModule : Module() {
   private external fun nativeGetMetaData(id: String): Map<String, Any>?
   private external fun nativeGetFramePixels(id: String, frameIndex: Int): ByteArray?
   private external fun nativeReleaseParser(id: String)
+  private external fun nativeInstallJSI(jsiRuntimePointer: Long)
 
   companion object {
     init {

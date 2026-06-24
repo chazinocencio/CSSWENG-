@@ -6,39 +6,10 @@
 #include <stdio.h>
 #include <android/log.h>
 #include "DicomParser.h"
+#include "NativeDicomJSI.h"
 
 extern "C" {
-    // The Android NDK defines stdout/stderr as macros like (&__sF[1])
-    FILE __sF[1024];
 
-    #undef stdout
-    #undef stderr
-    FILE* stdout = &__sF[1];
-    FILE* stderr = &__sF[2];
-
-    // Override the standard IO functions that GDCM uses.
-    // By providing these, prevent the system from trying to access
-    // the internal state of dummy FILE pointers, avoiding the crash.
-
-    int fprintf(FILE* stream, const char* format, ...) {
-        return 0; // Do nothing
-    }
-
-    int fflush(FILE* stream) {
-        return 0; // Do nothing
-    }
-
-    int fputc(int c, FILE* stream) {
-        return c;
-    }
-
-    size_t fwrite(const void* ptr, size_t size, size_t nmemb, FILE* stream) {
-        return nmemb;
-    }
-
-    int vfprintf(FILE* stream, const char* format, va_list ap) {
-        return 0;
-    }
 }
 
 static std::map<std::string, std::unique_ptr<DicomParser>> g_parsers;
@@ -137,4 +108,13 @@ Java_modules_nativedicom_NativeDicomModule_nativeReleaseParser(JNIEnv *env, jobj
     std::string idStr(nativeId);
     env->ReleaseStringUTFChars(id, nativeId);
     g_parsers.erase(idStr);
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_modules_nativedicom_NativeDicomModule_nativeInstallJSI(JNIEnv *env, jobject thiz, jlong jsiRuntimePtr) {
+    auto runtime = reinterpret_cast<facebook::jsi::Runtime*>(jsiRuntimePtr);
+    if (runtime) {
+        NativeDicomJSI::install(*runtime);
+    }
 }

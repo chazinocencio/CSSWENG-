@@ -6,7 +6,6 @@ import { router } from "expo-router";
 //Customized Module for DICOM files
 import * as NativeDicom from "native-dicom";
 
-
 export default function AssetTestPage() {
 	const [status, setStatus] = useState<string>("Initializing...");
 	const [metaData, setMetaData] = useState<NativeDicom.DicomMetaData | null>(null);
@@ -32,15 +31,33 @@ export default function AssetTestPage() {
 					filePath = filePath.substring(7);
 				}
 
-				setStatus(`Parsing DICOM at: ${filePath}`);
+				setStatus(`Parsing DICOM (JNI) at: ${filePath}`);
 				const instanceId = NativeDicom.createParser(filePath);
 
                 // Successful creation of parser instance DICOM file
 				if (instanceId) {
 					const meta = NativeDicom.getMetaData(instanceId);
 					setMetaData(meta);
-					setStatus("Parsing Successful!");
+					setStatus("JNI Parsing Successful! Now testing JSI...");
 					NativeDicom.releaseParser(instanceId);
+
+                    // --- JSI TEST ---
+                    try {
+                        const jsiParser = NativeDicom.createParserJSI(filePath);
+                        if (jsiParser) {
+                            const jsiMeta = jsiParser.getMetaData();
+                            console.log("JSI MetaData:", jsiMeta);
+                            const jsiPixels = jsiParser.getFramePixels(0);
+                            console.log("JSI Pixels length:", jsiPixels?.length);
+                            setStatus("JNI & JSI Parsing Successful!");
+                        } else {
+                            setError("JSI Parser creation failed (returned null).");
+                        }
+                    } catch (jsiErr) {
+                        console.error("JSI Test Error:", jsiErr);
+                        setError(`JSI Test Failed: ${jsiErr instanceof Error ? jsiErr.message : String(jsiErr)}`);
+                    }
+                    // ----------------
 				} else {
 					setError("Failed to create parser instance. GDCM might have failed to read the file. This is expected if 'sample.dcm' is not a valid DICOM file.");
 				}

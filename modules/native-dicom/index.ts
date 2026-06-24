@@ -7,6 +7,33 @@ import { requireNativeModule } from 'expo-modules-core';
  */
 const NativeDicom = requireNativeModule('NativeDicom');
 
+/**
+ * JSI Interface
+ * This is the high-performance interface for DICOM parsing.
+ */
+export interface DicomParserJSI {
+  getMetaData(): DicomMetaData;
+  getFramePixels(frameIndex: number): Uint8Array | null;
+}
+
+declare global {
+  var NativeDicomJSI: {
+    createParserJSI(path: string): DicomParserJSI | null;
+  } | undefined;
+}
+
+/**
+ * Creates a new DicomParser instance using JSI.
+ * @returns A DicomParserJSI object or null if failed.
+ */
+export function createParserJSI(filePath: string): DicomParserJSI | null {
+  if (typeof global.NativeDicomJSI === 'undefined') {
+    console.error("NativeDicomJSI is not installed. Ensure the module is properly loaded.");
+    return null;
+  }
+  return global.NativeDicomJSI.createParserJSI(filePath);
+}
+
 export interface DicomMetaData {
   width: number;
   height: number;

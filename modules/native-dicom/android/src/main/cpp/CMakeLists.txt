@@ -12,18 +12,25 @@ project(NativeDicom)
 set(GDCM_LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/${ANDROID_ABI})
 set(GDCM_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../../../include/gdcm)
 
+# Headers and Libraries from React Native
+find_package(ReactAndroid REQUIRED CONFIG)
+
 # Module Definition
 # Build the shared library 'NativeDicom' which will be loaded by Android.
 # Includes the JNI bridge and the core C++ DicomParser logic.
 add_library(NativeDicom SHARED
             NativeDicomJNI.cpp
+            NativeDicomJSI.cpp
             ../../../../cpp/DicomParser.cpp)
 
 # Header Includes
 # Ensure the compiler can find our custom headers and GDCM's headers.
 target_include_directories(NativeDicom PRIVATE
                            ../../../../cpp
-                           ${GDCM_INCLUDE_DIR})
+                           ${GDCM_INCLUDE_DIR}
+                           # Point to ReactCommon so that <jsi/jsi.h> can be resolved
+                           ../../../../../../node_modules/react-native/ReactCommon
+                           ../../../../../../node_modules/react-native/ReactCommon/jsi)
 
 # Dependency Linking (GDCM)
 # Link the necessary GDCM static libraries only if they exist for the current architecture.
@@ -59,4 +66,5 @@ target_link_libraries(NativeDicom
                       z       # Zlib for compression
                       log     # Android Logcat support
                       m       # Math library
-                      atomic) # Atomic operations support
+                      atomic  # Atomic operations support
+                      ReactAndroid::jsi) # Link against JSI symbols

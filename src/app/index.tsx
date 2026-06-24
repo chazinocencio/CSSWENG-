@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Text, TouchableOpacity, View } from "react-native";
 import UploadDCMButton from "../components/UploadDCMButton.tsx";
-import { createParser, getMetaData, releaseParser } from "../../modules/native-dicom";
+import { createParserJSI } from "../../modules/native-dicom";
 
 const debug = true
 
@@ -21,40 +21,28 @@ export default function Page() {
             const cleanPath = fileUri.replace(/^file:\/\//, '');
 
             if (debug) {console.log("Sanity Check:", cleanPath);}
-            setStatusText("Handing file to C++ Engine...");
-
-            let currentInstanceId: string | null = null;
+            setStatusText("Handing file to C++ Engine (JSI)...");
 
             try {
+                const parser = createParserJSI(cleanPath);
 
-                currentInstanceId = createParser(cleanPath);
-
-                if (!currentInstanceId) {
-                    throw new Error("Failed to create a parser instance.");
+                if (!parser) {
+                    throw new Error("Failed to create a JSI parser instance.");
                 }
 
-                const metaData = getMetaData(currentInstanceId);
-
-                console.log("It's 3:44 am i do not have time for this");
+                const metaData = parser.getMetaData();
 
                 if (!metaData) {
                      throw new Error("Returned null metadata.");
                 }
-                console.log("Lumusot");
-                console.log("Finished processing!", metaData);
-                setStatusText(`Success! ${metaData.width}x${metaData.height}`);
+
+                console.log("Finished processing via JSI!", metaData);
+                setStatusText(`Success! ${metaData.width}x${metaData.height} (${metaData.numFrames} frames)`);
 
             } catch (error) {
-                console.log("Did i go here");
-                console.error("Threw an error:", error);
-                setStatusText("Failed to read the file.");
-            } finally {
-                if (currentInstanceId) {
-                    releaseParser(currentInstanceId);
-                    console.log(`Destroying this ${currentInstanceId} bword.`);
-                }
+                console.error("JSI Error:", error);
+                setStatusText("Failed to read the file via JSI.");
             }
-
         };
 
 	const UploadInvalid = () => { setFile(null); };
