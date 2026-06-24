@@ -12,3 +12,8 @@ npm install
 ```bash
   npx expo run:android
 ```
+4. If it is not working due to the SDK not being detected please make sure to check the android folder if there is a local.properties file. If not create a `local.properties` file and please add this manually:
+```bash
+# sdk.dir=C\:\\Users\\*INSERT PC USERNAME*\\AppData\\Local\\Android\\Sdk
+sdk.dir=C\:\\Users\\juan\\AppData\\Local\\Android\\Sdk
+```
