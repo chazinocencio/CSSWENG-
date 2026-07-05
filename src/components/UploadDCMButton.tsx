@@ -22,12 +22,8 @@ export default function UploadDCMButton({UploadCancelled, UploadInvalid, UploadS
 			if (!documents.canceled) {
 				const file = documents.assets[0];
 				return !file.name.toLowerCase().endsWith(".dcm")
-			    ? UploadInvalid()
-				: UploadSuccess(file.uri);
-
-                console.log("minekaniko ni moniko ang makina ng minika ni monika"  + !file.name.toLowerCase().endsWith(".dcm") + file.name);
-                console.log(file.uri);
-                return UploadSuccess(file.uri);
+					? UploadInvalid()
+					: UploadSuccess(file.uri);
 			} else {
 				return UploadCancelled();
 			}

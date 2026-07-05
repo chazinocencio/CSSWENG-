@@ -1,58 +1,69 @@
-import React, { useState } from "react";
-import { Text, TouchableOpacity, View } from "react-native";
-import UploadDCMButton from "../components/UploadDCMButton.tsx";
+import { useState } from "react";
+import { Text, View } from "react-native";
 import { createParserJSI } from "../../modules/native-dicom";
-
-const debug = true
+import DICOMContentModal from "../components/DICOMContentModal";
+import UploadDCMButton from "../components/UploadDCMButton";
 
 export default function Page() {
-	const [file, setFile] = useState<string | null>("");
-	const [error, setError] = useState<string>("");
+	const [target, setTarget] = useState<string>("");
+	const [error, setError] = useState<boolean>(false);
 	const [statusText, setStatusText] = useState<string>("");
-	const PathText = () => {
-		if (file != null && file.length < 1)
-			return null;
-		else if (file != null)
-			return <Text className="text-xl font-light text-blue-500">{file}</Text>
-		else
-			return <Text className="text-xl font-light text-red-500">Invalid DICOM file.</Text>
+	const [DICOMContent, setDICOMContent] = useState<any>(null);
+	const [isDICOMContentModalVisible, setIsDICOMContentModalVisible] = useState<boolean>(false);
+	const DICOMContentModalClosed = () => {
+		setError(false);
+		setTarget("");
+		setStatusText("");
+		setDICOMContent(null);
+		setIsDICOMContentModalVisible(false);
 	};
-	const UploadSuccess = (fileUri: string) => {
-            const cleanPath = fileUri.replace(/^file:\/\//, '');
-
-            if (debug) {console.log("Sanity Check:", cleanPath);}
-            setStatusText("Handing file to C++ Engine (JSI)...");
-
-            try {
-                const parser = createParserJSI(cleanPath);
-
-                if (!parser) {
-                    throw new Error("Failed to create a JSI parser instance.");
-                }
-
-                const metaData = parser.getMetaData();
-
-                if (!metaData) {
-                     throw new Error("Returned null metadata.");
-                }
-
-                console.log("Finished processing via JSI!", metaData);
-                setStatusText(`Success! ${metaData.width}x${metaData.height} (${metaData.numFrames} frames)`);
-
-            } catch (error) {
-                console.error("JSI Error:", error);
-                setStatusText("Failed to read the file via JSI.");
-            }
-        };
-
-	const UploadInvalid = () => { setFile(null); };
-	const UploadCancelled = () => { setFile(""); };
+	const StatusText = () => {
+		if (statusText.length < 1)
+			return null;
+		const classes = 'text-xl font-light text-' + (error ? 'red' : 'blue') + '-500';
+		return <Text className={classes}>{statusText}</Text>;
+	};
+	const UploadSuccess = (fileUri: string) => {		
+		try {
+			if (fileUri == null || fileUri.length < 1)
+				throw new Error('Invalid DICOM file');
+			const cleanPath = fileUri.replace(/^file:\/\//, '');
+			const parser = createParserJSI(cleanPath);
+			if (!parser)
+				throw new Error('Failed to create a JSI parser instance.');
+			const dicom_md = parser.getMetaData();
+			if (!dicom_md)
+				throw new Error('Failed to obtain metadata from DICOM');
+			console.log('JSI processing success');
+			console.log(dicom_md);
+			setError(false);
+			setTarget(fileUri);
+			setDICOMContent(dicom_md);
+			setStatusText(`Upload success. (${dicom_md.width}x${dicom_md.height}, ${dicom_md.numFrames} frames)`);
+			setIsDICOMContentModalVisible(true);
+		} catch (error: any) {
+			console.log('An error has been encountered.');
+			console.log(error.message);
+			setError(true);
+			setStatusText(error.message);
+		}
+    };
+	const UploadInvalid = () => {
+		setError(true);
+		setStatusText('Invalid DICOM file.');
+	};
+	const UploadCancelled = () => {
+		setError(true);
+		setStatusText('Upload cancelled.');
+	};
 	return (
-		<View className="flex-1 items-center">
-			<View className="flex-1 justify-center">
-				<Text className="text-3xl font-bold">I can see the light!</Text>
-				<Text className="text-xl font-light">This is the first page of your app.</Text>
-				<PathText />
+		<View className="m-4 h-full flex justify-center">
+			<View className="ml-2 mr-2 mb-5 flex justify-center">
+				<Text className="text-2xl font-bold">Welcome to DICOM Viewer.</Text>
+				<Text className="text-xl font-light">Upload a DICOM file to read by clicking the Upload button below.</Text>
+			</View>
+			<View className="mr-6 items-center">
+				<StatusText />
 				<UploadDCMButton
 					ButtonClass="w-[100px] h-[40px] bg-[#eb8817] justify-center items-center rounded-lg"
 					TextClass="text-xl text-white font-light"
@@ -62,6 +73,8 @@ export default function Page() {
 					UploadCancelled={UploadCancelled}
 				/>
 			</View>
+			<DICOMContentModal Content={DICOMContent} TargetFile={target}
+				Visibility={isDICOMContentModalVisible} ModalClosed={DICOMContentModalClosed} />
 		</View>
 	);
 }
