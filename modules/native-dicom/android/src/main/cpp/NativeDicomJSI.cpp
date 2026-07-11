@@ -2,6 +2,21 @@
 #include <android/log.h>
 #include <string.h>
 
+// Added the DicomeMutableBuffer Class
+// Used to counter Hermes Memory Segmentation fault (yes that's a thing pala)
+// allocating natively in C++ first to safely write pixels in it
+// saka mapupunta yung keys sa javascript
+class DicomMutableBuffer : public facebook::jsi::MutableBuffer {
+public:
+    DicomMutableBuffer(size_t size) : size_(size), data_(new uint8_t[size]) {}
+    ~DicomMutableBuffer() override { delete[] data_; }
+    size_t size() const override { return size_; }
+    uint8_t* data() override { return data_; }
+private:
+    size_t size_;
+    uint8_t* data_;
+};
+
 #define JSI_TAG "NativeDicomJSI"
 #define JSI_LOGI(...) __android_log_print(ANDROID_LOG_INFO, JSI_TAG, __VA_ARGS__)
 #define JSI_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, JSI_TAG, __VA_ARGS__)
@@ -39,32 +54,40 @@ Value DicomParserJSI::get(Runtime &runtime, const PropNameID &name) {
             });
     }
 
+    // edited to use the safe memory class specified above
     if (methodName == "getFramePixels") {
-        return Function::createFromHostFunction(
-            runtime, name, 1,
-            [this](Runtime &rt, const Value &thisVal, const Value *args, size_t count) -> Value {
-                if (count < 1 || !args[0].isNumber()) {
-                    throw JSError(rt, "getFramePixels: Expected frame index as number");
-                }
-                int32_t frameIndex = (int32_t)args[0].asNumber();
-                std::vector<uint8_t> pixels;
-                if (!parser_->getFramePixels(frameIndex, pixels)) {
-                    return Value::null();
-                }
+            return Function::createFromHostFunction(
+                runtime, name, 1,
+                [this](Runtime &rt, const Value &thisVal, const Value *args, size_t count) -> Value {
+                    if (count < 1 || !args[0].isNumber()) {
+                        throw JSError(rt, "getFramePixels: Expected frame index as number");
+                    }
+                    
+                    int32_t frameIndex = (int32_t)args[0].asNumber();
+                    std::vector<uint8_t> pixels;
+                    
+                    if (!parser_->getFramePixels(frameIndex, pixels)) {
+                        return Value::null();
+                    }
 
-                // Create a Uint8Array from the vector
-                Function arrayBufferConstructor = rt.global().getPropertyAsFunction(rt, "ArrayBuffer");
-                Object arrayBuffer = arrayBufferConstructor.callAsConstructor(rt, (double)pixels.size()).asObject(rt);
-                ArrayBuffer buffer = arrayBuffer.getArrayBuffer(rt);
-                memcpy(buffer.data(rt), pixels.data(), pixels.size());
+                    // main changes made
+                    // 1. Create a native memory buffer that Hermes can understand safely
+                    auto mutableBuffer = std::make_shared<DicomMutableBuffer>(pixels.size());
+                    
+                    // 2. Copy the DICOM pixels directly into this native buffer (No crash!)
+                    memcpy(mutableBuffer->data(), pixels.data(), pixels.size());
 
-                Function uint8ArrayConstructor = rt.global().getPropertyAsFunction(rt, "Uint8Array");
-                return uint8ArrayConstructor.callAsConstructor(rt, arrayBuffer);
-            });
+                    // 3. Create the JS ArrayBuffer by handing over the safe native memory
+                    ArrayBuffer buffer(rt, mutableBuffer);
+
+                    // 4. Wrap it in a JS Uint8Array and return
+                    Function uint8ArrayConstructor = rt.global().getPropertyAsFunction(rt, "Uint8Array");
+                    return uint8ArrayConstructor.callAsConstructor(rt, buffer);
+                });
+        }
+
+        return Value::undefined();
     }
-
-    return Value::undefined();
-}
 
 void DicomParserJSI::set(Runtime &runtime, const PropNameID &name, const Value &value) {
     // No-op
