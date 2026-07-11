@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { Text, View, StyleSheet} from "react-native";
 import { createParserJSI } from "../../modules/native-dicom";
 import DICOMContentModal from "../components/DICOMContentModal";
 import UploadDCMButton from "../components/UploadDCMButton";
+import { Canvas, Circle, vec } from '@shopify/react-native-skia'
 
 export default function Page() {
 	const [target, setTarget] = useState<string>("");
@@ -24,6 +25,7 @@ export default function Page() {
 		return <Text className={classes}>{statusText}</Text>;
 	};
 	const UploadSuccess = (fileUri: string) => {		
+		console.log("EXACT FILE URI:", fileUri);
 		try {
 			if (fileUri == null || fileUri.length < 1)
 				throw new Error('Invalid DICOM file');
@@ -31,14 +33,24 @@ export default function Page() {
 			const parser = createParserJSI(cleanPath);
 			if (!parser)
 				throw new Error('Failed to create a JSI parser instance.');
+
 			const dicom_md = parser.getMetaData();
 			if (!dicom_md)
 				throw new Error('Failed to obtain metadata from DICOM');
+			
+			//0 dahil 2D image for now syempre iibahin kapag multiframe na
+			const frameData = parser.getFramePixels(0);
+
+			//inexpand ko na lng yung content para di na magiba yung component
+			const contentWithImage = {
+				//para width, height, frameData ang ibigay
+				...dicom_md,
+				frameData: frameData
+			}
 			console.log('JSI processing success');
-			console.log(dicom_md);
 			setError(false);
 			setTarget(fileUri);
-			setDICOMContent(dicom_md);
+			setDICOMContent(contentWithImage);
 			setStatusText(`Upload success. (${dicom_md.width}x${dicom_md.height}, ${dicom_md.numFrames} frames)`);
 			setIsDICOMContentModalVisible(true);
 		} catch (error: any) {
