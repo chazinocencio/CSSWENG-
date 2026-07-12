@@ -3,12 +3,14 @@ import { useMemo, useRef, useState } from 'react';
 import {
 	Modal, NativeScrollEvent, NativeSyntheticEvent,
 	Pressable,
-	ScrollView, Text, TouchableOpacity, useWindowDimensions, View
+	Text, TouchableOpacity, useWindowDimensions, View
 } from 'react-native';
+import { GestureHandlerRootView, ScrollView } from 'react-native-gesture-handler';
 
 //skia stuff
-import { AlphaType, Canvas, ColorType, Skia, Image as SkiaImage, SkImage } from '@shopify/react-native-skia';
+import { AlphaType, ColorType, Skia, SkImage } from '@shopify/react-native-skia';
 import { createParserJSI, DicomMetaData } from '../../modules/native-dicom';
+import ZoomableDicomCanvas from './ZoomableDicomCanvas';
 
 interface DICOMContentModalProps {
 	Visibility: boolean;
@@ -39,7 +41,10 @@ export default function DICOMContentModal({
 	const [maxSeriesIndex, setMaxSeriesIndex] = useState<number>(0);
 	const [frameIndex, setFrameIndex] = useState<number>(0);
 	const [maxFrameIndex, setMaxFrameIndex] = useState<number>(0);
+	const [isImageZoomed, setIsImageZoomed] = useState<boolean>(false);
 	const page_ref = useRef<ScrollView>(null);
+	const displayWidth = width - 48;
+	const isOnImageTab = ZIPContent ? pageIndex === 1 : pageIndex === 2;
 	//Convert raw Uint8Array bytes to a Skia Image
 	const dicomSkiaImage = useMemo(() => {
 		if (!Content || !Content.frameData) return null;
@@ -95,21 +100,14 @@ export default function DICOMContentModal({
 	}, [Content]);
 	const renderDicomImage = () => {
 		if (dicomSkiaImage) {
-			// Calculate responsive target dimensions while preserving the true aspect ratio
-			const displayWidth = width - 48; // Gives clean margins on both sides of the screen
-			const displayHeight = (Content.height / Content.width) * displayWidth;
-
 			return (
-				<Canvas style={{ width: displayWidth, height: displayHeight }}>
-					<SkiaImage
-						image={dicomSkiaImage}
-						fit="contain"
-						x={0}
-						y={0}
-						width={displayWidth}
-						height={displayHeight}
-					/>
-				</Canvas>
+				<ZoomableDicomCanvas
+					image={dicomSkiaImage}
+					imageWidth={Content.width}
+					imageHeight={Content.height}
+					containerWidth={displayWidth}
+					onZoomChange={setIsImageZoomed}
+				/>
 			);
 		} else {
 			return <Text className="text-gray-500 mt-10">Failed to render raw pixels.</Text>;
@@ -163,6 +161,7 @@ export default function DICOMContentModal({
 		SwitchTab(0);
 		setImage(null);
 		setImageInfo(null);
+		setIsImageZoomed(false);
 		ModalClosed();
 	};
 	const LoadSeries = (series: string, dicom_index: number = 0, frame_index: number = 0) => {
@@ -249,22 +248,16 @@ export default function DICOMContentModal({
 			return null;
 		}
 	};
-	const RenderSkia = (image: SkImage | null) => {
-		if (image && imageInfo) {
-			// Calculate responsive target dimensions while preserving the true aspect ratio
-			const w = width - 48; // Gives clean margins on both sides of the screen
-			const h = (imageInfo.height / imageInfo.width) * w;
+	const RenderSkia = (skiaImage: SkImage | null) => {
+		if (skiaImage && imageInfo) {
 			return (
-				<Canvas style={{ width: w, height: h }}>
-					<SkiaImage
-						image={image}
-						fit="contain"
-						x={0}
-						y={0}
-						width={w}
-						height={h}
-					/>
-				</Canvas>
+				<ZoomableDicomCanvas
+					image={skiaImage}
+					imageWidth={imageInfo.width}
+					imageHeight={imageInfo.height}
+					containerWidth={displayWidth}
+					onZoomChange={setIsImageZoomed}
+				/>
 			);
 		} else {
 			return <Text className="text-black mt-2 text-center">DICOM images to be shown here.</Text>;
@@ -325,6 +318,7 @@ export default function DICOMContentModal({
 	);
 	return (
 		<Modal animationType="slide" transparent={true} visible={Visibility} onRequestClose={ModalClosed} onShow={ModalShown}>
+			<GestureHandlerRootView style={{ flex: 1 }}>
 			<View className="flex-1 justify-end bg-black/50">
 				<View className="bg-white h-[95%] rounded-t-3xl pt-6 shadow-xl">
 
@@ -356,6 +350,7 @@ export default function DICOMContentModal({
 					</View>
 
 					<ScrollView className="flex-1" ref={page_ref} horizontal pagingEnabled
+						scrollEnabled={!isImageZoomed && !isOnImageTab}
 						showsHorizontalScrollIndicator={false} onScroll={EstimateIndex} scrollEventThrottle={4}>
 						
 						<View style={{width}} className="px-6 pt-4">
@@ -376,6 +371,7 @@ export default function DICOMContentModal({
 					</ScrollView>
 				</View>
 			</View>
+			</GestureHandlerRootView>
 		</Modal>
 	);
 }
