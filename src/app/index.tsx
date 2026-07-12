@@ -1,21 +1,25 @@
+import * as Crypto from 'expo-crypto';
+import * as EFS from 'expo-file-system';
 import { useState } from "react";
-import { Text, View, StyleSheet} from "react-native";
+import { Text, View } from "react-native";
+import { unzip } from 'react-native-zip-archive';
 import { createParserJSI } from "../../modules/native-dicom";
 import DICOMContentModal from "../components/DICOMContentModal";
 import UploadDCMButton from "../components/UploadDCMButton";
-import { Canvas, Circle, vec } from '@shopify/react-native-skia'
 
 export default function Page() {
 	const [target, setTarget] = useState<string>("");
 	const [error, setError] = useState<boolean>(false);
 	const [statusText, setStatusText] = useState<string>("");
 	const [DICOMContent, setDICOMContent] = useState<any>(null);
+	const [ZIPContent, setZIPContent] = useState<any>(null);
 	const [isDICOMContentModalVisible, setIsDICOMContentModalVisible] = useState<boolean>(false);
 	const DICOMContentModalClosed = () => {
 		setError(false);
 		setTarget("");
 		setStatusText("");
 		setDICOMContent(null);
+		setZIPContent(null);
 		setIsDICOMContentModalVisible(false);
 	};
 	const StatusText = () => {
@@ -60,6 +64,72 @@ export default function Page() {
 			setStatusText(error.message);
 		}
     };
+	const UploadSuccessZIP = async (fileUri: string) => {
+		try {			
+			const uuid = Crypto.randomUUID();
+			const cpwd = new EFS.Directory(EFS.Paths.cache, uuid);
+			cpwd.create();
+			if (!cpwd.exists || !cpwd.info().creationTime)
+				throw new Error('Unable to create cache directory.');
+			await unzip(fileUri, cpwd.uri, 'UTF-8');
+			const dirs = [...cpwd.list()];
+			const dicom_uris: Record<string, string[]> = {};
+			for (const i of dirs) {
+				if (i instanceof EFS.Directory) {
+					let has_dicom = false;
+					let iuri = i.info().uri;
+					if (!iuri) {
+						i.delete();
+						continue;
+					} else {
+						iuri = iuri.substring(0, iuri.length - 1);
+					}
+					const iname = iuri.substring(iuri.lastIndexOf('/') + 1);
+					const il = [...i.list()];
+					for (const j of il) {
+						const juri = j.info().uri;
+						if (!(j instanceof EFS.File) || !juri) {
+							j.delete();
+							continue;
+						}
+						const jext = juri.substring(juri.lastIndexOf('.') + 1);
+						const is_dicom = jext === 'dcm';
+						has_dicom = has_dicom || is_dicom;
+						if (!is_dicom) {
+							j.delete();
+							continue;
+						} else {
+							const jname = juri.substring(juri.lastIndexOf('/') + 1);
+							if (!dicom_uris[String(iname)])
+								dicom_uris[String(iname)] = [];
+							dicom_uris[String(iname)].push(jname);
+						}
+					}
+					if (!has_dicom)
+						i.delete();
+				}
+			}
+			if (Object.keys(dicom_uris).length < 1)
+				throw new Error('Invalid DICOM ZIP file.');
+			const zip = {
+				source: fileUri,
+				cache: cpwd.uri,
+				created: cpwd.info().creationTime,
+				folders: { ...dicom_uris },
+			};
+			console.log(zip);
+			setError(false);
+			setTarget(fileUri);
+			setZIPContent(zip);
+			setStatusText('Upload success.');
+			setIsDICOMContentModalVisible(true);
+		} catch (error: any) {
+			console.log('An error has been encountered during ZIP reading.');
+			console.log(error.message);
+			setError(true);
+			setStatusText(error.message);
+		}
+	}
 	const UploadInvalid = () => {
 		setError(true);
 		setStatusText('Invalid DICOM file.');
@@ -81,11 +151,12 @@ export default function Page() {
 					TextClass="text-xl text-white font-light"
 					ButtonText="Upload"
 					UploadSuccess={UploadSuccess}
+					UploadSuccessZIP={UploadSuccessZIP}
 					UploadInvalid={UploadInvalid}
 					UploadCancelled={UploadCancelled}
 				/>
 			</View>
-			<DICOMContentModal Content={DICOMContent} TargetFile={target}
+			<DICOMContentModal Content={DICOMContent} ZIPContent={ZIPContent} TargetFile={target}
 				Visibility={isDICOMContentModalVisible} ModalClosed={DICOMContentModalClosed} />
 		</View>
 	);

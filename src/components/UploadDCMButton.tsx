@@ -1,17 +1,20 @@
-import { Text, TouchableOpacity, View } from "react-native";
 import * as edp from "expo-document-picker";
-import * as fs from "expo-file-system";
+import { Text, TouchableOpacity } from "react-native";
 
 interface UploadDCMButtonProps {
 	UploadCancelled: () => void;
 	UploadInvalid: (error?: any) => void;
 	UploadSuccess: (fileName: string) => void;
+	UploadSuccessZIP: (fileName: string) => void;
 	ButtonText: string;
 	ButtonClass: string;
 	TextClass: string;
 }
 
-export default function UploadDCMButton({UploadCancelled, UploadInvalid, UploadSuccess, ButtonText, ButtonClass, TextClass}: UploadDCMButtonProps) {
+export default function UploadDCMButton({
+	UploadCancelled, UploadInvalid, UploadSuccess, UploadSuccessZIP,
+	ButtonText, ButtonClass, TextClass
+}: UploadDCMButtonProps) {
 	const GetDocument = async () => {
 		try {
 			const documents = await edp.getDocumentAsync({
@@ -21,9 +24,14 @@ export default function UploadDCMButton({UploadCancelled, UploadInvalid, UploadS
 			});
 			if (!documents.canceled) {
 				const file = documents.assets[0];
-				return !file.name.toLowerCase().endsWith(".dcm")
-					? UploadInvalid()
-					: UploadSuccess(file.uri);
+				const uri = file.uri.toLowerCase();
+				const ext = uri.substring(uri.lastIndexOf('.') + 1);
+				if (ext === 'dcm')
+					return UploadSuccess(file.uri);
+				else if (ext === 'zip')
+					return UploadSuccessZIP(file.uri);
+				else
+					return UploadInvalid();
 			} else {
 				return UploadCancelled();
 			}
