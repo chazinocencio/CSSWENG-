@@ -112,8 +112,43 @@ export default function DICOMContentModal({
 			return <Text className="text-gray-500 mt-10">Failed to render raw pixels.</Text>;
 		}
 	};
-	if (!Content && !ZIPContent)
-		return null;
+	const MetadataOrZIPContents = useMemo(() => {
+		if (!Content && !ZIPContent)
+			return null;
+		else if (!ZIPContent) {
+			return Object.entries(Content).map(([k, v]) => {
+				// skip render of frame data para di iload as string
+				if (k === 'frameData') return null;
+
+				// render metadata
+				return (
+					<View key={k} className="mb-3">
+						<Text className="text-sm font-semibold text-gray-500 uppercase tracking-wider">{k}</Text>
+						<Text className="text-lg text-gray-800">{String(v)}</Text>
+					</View>
+				);
+			});
+		} else {
+			return Object.entries(ZIPContent.folders).map(([n, v], i) => (
+				<View key={i} className="mb-2">
+					<View className="flex-row items-center mb-2">
+						<Folder color="#354c70" size={16} />
+						<Text className="text-lg font-semibold text-[#f77707] underline active:text-blue-400 active:bg-gray-100
+							active:opacity-60 ml-2" onPress={() => LoadSeries(n, 0)}>{n}</Text>
+					</View>
+					<View className="ml-2 border-l-2 border-black pl-2">
+						{(v as string[]).map((fn, fi) => (
+							<View key={fi} className="flex-row items-center py-2">
+								<File color="#64748b" size={16} />
+								<Text className="font-medium text-[#1000ff] underline active:text-blue-400 active:bg-gray-100
+									active:opacity-60 ml-2" onPress={() => LoadSeries(n, fi)}>{fn}</Text>
+							</View>
+						))}
+					</View>
+				</View>
+			));
+		}
+	}, [Content, ZIPContent]);
 	const EstimateIndex = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
 		setPageIndex(Math.round(e.nativeEvent.contentOffset.x / e.nativeEvent.layoutMeasurement.width));
 	};
@@ -232,41 +267,6 @@ export default function DICOMContentModal({
 			return <Text className="text-black mt-2 text-center">DICOM images to be shown here.</Text>;
 		}
 	};
-	const MetadataOrZIPContents = () => {
-		if (!ZIPContent) {
-			return Object.entries(Content).map(([k, v]) => {
-				// skip render of frame data para di iload as string
-				if (k === 'frameData') return null;
-
-				// render metadata
-				return (
-					<View key={k} className="mb-3">
-						<Text className="text-sm font-semibold text-gray-500 uppercase tracking-wider">{k}</Text>
-						<Text className="text-lg text-gray-800">{String(v)}</Text>
-					</View>
-				);
-			});
-		} else {
-			return Object.entries(ZIPContent.folders).map(([n, v], i) => (
-				<View key={i} className="mb-2">
-					<View className="flex-row items-center mb-2">
-						<Folder color="#354c70" size={16} />
-						<Text className="text-lg font-semibold text-[#f77707] underline active:text-blue-400 active:bg-gray-100
-							active:opacity-60 ml-2" onPress={() => LoadSeries(n, 0)}>{n}</Text>
-					</View>
-					<View className="ml-2 border-l-2 border-black pl-2">
-						{(v as string[]).map((fn, fi) => (
-							<View key={fi} className="flex-row items-center py-2">
-								<File color="#64748b" size={16} />
-								<Text className="font-medium text-[#1000ff] underline active:text-blue-400 active:bg-gray-100
-									active:opacity-60 ml-2" onPress={() => LoadSeries(n, fi)}>{fn}</Text>
-							</View>
-						))}
-					</View>
-				</View>
-			));
-		}
-	};
 	const ImagesTab = () => !seriesName || !image || !imageInfo ? (
 		<View style={{width}} className="px-6 pt-4 flex-1 justify-center items-center">
 			<Text className="text-2xl font-bold text-black">Images</Text>
@@ -357,13 +357,13 @@ export default function DICOMContentModal({
 						
 						<View style={{width}} className="px-6 pt-4">
 							<ScrollView showsVerticalScrollIndicator={false}>
-								{ MetadataOrZIPContents() }
+								{MetadataOrZIPContents}
 								{ ZIPContent ? <View className="h-8" /> : null }
 							</ScrollView>
 						</View>
 						
 						<ImagesTab />
-
+						
 						{ !ZIPContent ?
 							<View style={{width}} className="px-6 pt-4 flex-1 justify-top items-center">
 								<Text className="text-2xl font-bold text-black">Rendering Test</Text>

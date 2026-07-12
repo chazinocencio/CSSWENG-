@@ -55,6 +55,7 @@ export default function Page() {
 			setError(false);
 			setTarget(fileUri);
 			setDICOMContent(contentWithImage);
+			setZIPContent(null);
 			setStatusText(`Upload success. (${dicom_md.width}x${dicom_md.height}, ${dicom_md.numFrames} frames)`);
 			setIsDICOMContentModalVisible(true);
 		} catch (error: any) {
@@ -100,13 +101,15 @@ export default function Page() {
 							continue;
 						} else {
 							const jname = juri.substring(juri.lastIndexOf('/') + 1);
-							if (!dicom_uris[String(iname)])
-								dicom_uris[String(iname)] = [];
-							dicom_uris[String(iname)].push(jname);
+							if (!dicom_uris[iname])
+								dicom_uris[iname] = [];
+							dicom_uris[iname].push(jname);
 						}
 					}
 					if (!has_dicom)
 						i.delete();
+					else
+						dicom_uris[iname].sort((a, b) => a.localeCompare(b));
 				}
 			}
 			if (Object.keys(dicom_uris).length < 1)
@@ -117,15 +120,15 @@ export default function Page() {
 				created: cpwd.info().creationTime,
 				folders: { ...dicom_uris },
 			};
-			console.log(zip);
 			setError(false);
 			setTarget(fileUri);
+			setDICOMContent(null);
 			setZIPContent(zip);
 			setStatusText('Upload success.');
 			setIsDICOMContentModalVisible(true);
 		} catch (error: any) {
-			console.log('An error has been encountered during ZIP reading.');
-			console.log(error.message);
+			console.error('An error has been encountered during ZIP reading.');
+			console.error(error.message);
 			setError(true);
 			setStatusText(error.message);
 		}
