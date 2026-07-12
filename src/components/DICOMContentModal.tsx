@@ -16,21 +16,24 @@ interface DICOMContentModalProps {
 	ZIPContent: any;
 	TargetFile: string;
 	ModalClosed: () => void;
-}
+	ModalShown: () => void;
+};
+
+interface SkiaInfo {
+	width: number,
+	height: number,
+	colorType: ColorType,
+	alphaType: AlphaType
+};
 
 export default function DICOMContentModal({
 	Visibility, Content, ZIPContent, TargetFile,
-	ModalClosed
+	ModalClosed, ModalShown
 }:　DICOMContentModalProps) {
 	const { width } = useWindowDimensions();
 	const [pageIndex, setPageIndex] = useState<number>(0);
 	const [image, setImage] = useState<SkImage | null>(null);
-	const [imageInfo, setImageInfo] = useState<{
-		width: number,
-		height: number,
-		colorType: ColorType,
-		alphaType: AlphaType
-	} | null>(null);
+	const [imageInfo, setImageInfo] = useState<SkiaInfo | null>(null);
 	const [seriesName, setSeriesName] = useState<string | null>(null);
 	const [seriesIndex, setSeriesIndex] = useState<number>(0);
 	const [maxSeriesIndex, setMaxSeriesIndex] = useState<number>(0);
@@ -199,7 +202,7 @@ export default function DICOMContentModal({
 					buffer = canvas;
 				}
 				const skia_data = Skia.Data.fromBytes(buffer);
-				const skia_info = {
+				const skia_info: SkiaInfo = {
 					width: metadata.width,
 					height: metadata.height,
 					colorType: ColorType.Gray_8,
@@ -321,7 +324,7 @@ export default function DICOMContentModal({
 		</View>
 	);
 	return (
-		<Modal animationType="slide" transparent={true} visible={Visibility} onRequestClose={ModalClosed}>
+		<Modal animationType="slide" transparent={true} visible={Visibility} onRequestClose={ModalClosed} onShow={ModalShown}>
 			<View className="flex-1 justify-end bg-black/50">
 				<View className="bg-white h-[95%] rounded-t-3xl pt-6 shadow-xl">
 

@@ -1,7 +1,7 @@
 import * as Crypto from 'expo-crypto';
 import * as EFS from 'expo-file-system';
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { ActivityIndicator, Text, View } from "react-native";
 import { unzip } from 'react-native-zip-archive';
 import { createParserJSI } from "../../modules/native-dicom";
 import DICOMContentModal from "../components/DICOMContentModal";
@@ -14,6 +14,7 @@ export default function Page() {
 	const [DICOMContent, setDICOMContent] = useState<any>(null);
 	const [ZIPContent, setZIPContent] = useState<any>(null);
 	const [isDICOMContentModalVisible, setIsDICOMContentModalVisible] = useState<boolean>(false);
+	const [isLoading, setIsLoading] = useState<boolean>(false);
 	const DICOMContentModalClosed = () => {
 		setError(false);
 		setTarget("");
@@ -22,13 +23,18 @@ export default function Page() {
 		setZIPContent(null);
 		setIsDICOMContentModalVisible(false);
 	};
+	const DICOMContentModalShown = () => {
+		setIsLoading(false);
+	};
 	const StatusText = () => {
 		if (statusText.length < 1)
 			return null;
 		const classes = 'text-xl font-light text-' + (error ? 'red' : 'blue') + '-500';
 		return <Text className={classes}>{statusText}</Text>;
 	};
-	const UploadSuccess = (fileUri: string) => {		
+	const UploadSuccess = async (fileUri: string) => {		
+		setIsLoading(true);
+		await new Promise(res => setTimeout(res, 50));
 		console.log("EXACT FILE URI:", fileUri);
 		try {
 			if (fileUri == null || fileUri.length < 1)
@@ -49,7 +55,7 @@ export default function Page() {
 			const contentWithImage = {
 				//para width, height, frameData ang ibigay
 				...dicom_md,
-				frameData: frameData
+				frameData
 			}
 			console.log('JSI processing success');
 			setError(false);
@@ -66,7 +72,8 @@ export default function Page() {
 		}
     };
 	const UploadSuccessZIP = async (fileUri: string) => {
-		try {			
+		setIsLoading(true);
+		try {
 			const uuid = Crypto.randomUUID();
 			const cpwd = new EFS.Directory(EFS.Paths.cache, uuid);
 			cpwd.create();
@@ -141,12 +148,8 @@ export default function Page() {
 		setError(true);
 		setStatusText('Upload cancelled.');
 	};
-	return (
-		<View className="m-4 h-full flex justify-center">
-			<View className="ml-2 mr-2 mb-5 flex justify-center">
-				<Text className="text-2xl font-bold">Welcome to DICOM Viewer.</Text>
-				<Text className="text-xl font-light">Upload a DICOM file to read by clicking the Upload button below.</Text>
-			</View>
+	const UploadButton = () => {
+		return !isLoading ? (
 			<View className="mr-6 items-center">
 				<StatusText />
 				<UploadDCMButton
@@ -159,8 +162,24 @@ export default function Page() {
 					UploadCancelled={UploadCancelled}
 				/>
 			</View>
+		) : (
+			<View className="mr-6 flex-col items-center">
+				<ActivityIndicator color="orange" size={40} />
+				<Text className="text-xl font-light">Please wait...</Text>
+			</View>
+		);
+	};
+	return (
+		<View className="m-4 h-full flex justify-center">
+			<View className="ml-2 mr-2 mb-5 flex justify-center">
+				<Text className="text-2xl font-bold">Welcome to DICOM Viewer.</Text>
+				<Text className="text-xl font-light">Upload a DICOM file or a ZIP file to
+					read by clicking the Upload button below.</Text>
+			</View>
+			<UploadButton />
 			<DICOMContentModal Content={DICOMContent} ZIPContent={ZIPContent} TargetFile={target}
-				Visibility={isDICOMContentModalVisible} ModalClosed={DICOMContentModalClosed} />
+				Visibility={isDICOMContentModalVisible} ModalClosed={DICOMContentModalClosed}
+				ModalShown={DICOMContentModalShown}/>
 		</View>
 	);
 }
