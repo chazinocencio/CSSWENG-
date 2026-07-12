@@ -34,6 +34,9 @@ export default function Page() {
 	};
 	const UploadSuccess = async (fileUri: string) => {		
 		setIsLoading(true);
+		/* Since originally di async tong function na to,
+		 * suspend for a very short moment para magrender ung loading spinner
+		 * (pauses for 50 ms) */
 		await new Promise(res => setTimeout(res, 50));
 		console.log("EXACT FILE URI:", fileUri);
 		try {
@@ -48,12 +51,12 @@ export default function Page() {
 			if (!dicom_md)
 				throw new Error('Failed to obtain metadata from DICOM');
 			
-			//0 dahil 2D image for now syempre iibahin kapag multiframe na
+			/* 0 dahil 2D image for now syempre iibahin kapag multiframe na */
 			const frameData = parser.getFramePixels(0);
 
-			//inexpand ko na lng yung content para di na magiba yung component
+			/* inexpand ko na lng yung content para di na magiba yung component */
 			const contentWithImage = {
-				//para width, height, frameData ang ibigay
+				/* para width, height, frameData ang ibigay */
 				...dicom_md,
 				frameData
 			}
@@ -82,6 +85,7 @@ export default function Page() {
 			await unzip(fileUri, cpwd.uri, 'UTF-8');
 			const dirs = [...cpwd.list()];
 			const dicom_uris: Record<string, string[]> = {};
+			/* Check ang mga directories for DICOM files */
 			for (const i of dirs) {
 				if (i instanceof EFS.Directory) {
 					let has_dicom = false;
@@ -119,8 +123,36 @@ export default function Page() {
 						dicom_uris[iname].sort((a, b) => a.localeCompare(b));
 				}
 			}
-			if (Object.keys(dicom_uris).length < 1)
-				throw new Error('Invalid DICOM ZIP file.');
+			/* Walang nahanap na DICOM sa mga directories
+			 * Last check kung sa root merong mga DICOM files */
+			if (Object.keys(dicom_uris).length < 1) {
+				let has_root_dicom = false;
+				for (const i of dirs) {
+					if (i instanceof EFS.File) {
+						const uri = i.info().uri;
+						if (!uri) {
+							i.delete();
+							continue;
+						}
+						const ext = uri.substring(uri.lastIndexOf('.') + 1);
+						const is_dicom = ext === 'dcm';
+						has_root_dicom = has_root_dicom || is_dicom;
+						if (is_dicom) {
+							const name = uri.substring(uri.lastIndexOf('/') + 1);
+							if (!dicom_uris['/'])
+								dicom_uris['/'] = [];
+							dicom_uris['/'].push(name);
+						} else {
+							i.delete();
+							continue;
+						}
+					}
+				}
+				if (!has_root_dicom)
+					throw new Error('Invalid DICOM ZIP file.');
+				else
+					dicom_uris['/'].sort((a, b) => a.localeCompare(b));
+			}
 			const zip = {
 				source: fileUri,
 				cache: cpwd.uri,
@@ -138,6 +170,7 @@ export default function Page() {
 			console.error(error.message);
 			setError(true);
 			setStatusText(error.message);
+			setIsLoading(false);
 		}
 	}
 	const UploadInvalid = () => {
@@ -170,10 +203,10 @@ export default function Page() {
 		);
 	};
 	return (
-		<View className="m-4 h-full flex justify-center">
-			<View className="ml-2 mr-2 mb-5 flex justify-center">
+		<View className="m-4 h-full flex-1 justify-center">
+			<View className="ml-2 mr-2 mb-5 items-center justify-center">
 				<Text className="text-2xl font-bold">Welcome to DICOM Viewer.</Text>
-				<Text className="text-xl font-light">Upload a DICOM file or a ZIP file to
+				<Text className="text-xl font-light text-center">Upload a DICOM file or a ZIP file to
 					read by clicking the Upload button below.</Text>
 			</View>
 			<UploadButton />

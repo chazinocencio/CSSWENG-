@@ -6,7 +6,7 @@ import {
 	ScrollView, Text, TouchableOpacity, useWindowDimensions, View
 } from 'react-native';
 
-//skia stuff
+/* skia stuff */
 import { AlphaType, Canvas, ColorType, Skia, Image as SkiaImage, SkImage } from '@shopify/react-native-skia';
 import { createParserJSI, DicomMetaData } from '../../modules/native-dicom';
 
@@ -20,10 +20,10 @@ interface DICOMContentModalProps {
 };
 
 interface SkiaInfo {
-	width: number,
-	height: number,
-	colorType: ColorType,
-	alphaType: AlphaType
+	width: number;
+	height: number;
+	colorType: ColorType;
+	alphaType: AlphaType;
 };
 
 export default function DICOMContentModal({
@@ -40,14 +40,14 @@ export default function DICOMContentModal({
 	const [frameIndex, setFrameIndex] = useState<number>(0);
 	const [maxFrameIndex, setMaxFrameIndex] = useState<number>(0);
 	const page_ref = useRef<ScrollView>(null);
-	//Convert raw Uint8Array bytes to a Skia Image
+	/* Convert raw Uint8Array bytes to a Skia Image */
 	const dicomSkiaImage = useMemo(() => {
 		if (!Content || !Content.frameData) return null;
 
 		try {
 			let pixelBuffer = Content.frameData;
 
-			// If the DICOM is 16-bit (2 bytes per pixel), downsample it to 8-bit for Skia Gray_8
+			/* If the DICOM is 16-bit (2 bytes per pixel), downsample it to 8-bit for Skia Gray_8 */
 			if (Content.bitsAllocated === 16) {
 				const totalPixels = Content.width * Content.height;
 				const normArray = new Uint8Array(totalPixels);
@@ -55,7 +55,7 @@ export default function DICOMContentModal({
 				let minVal = 65535;
 				let maxVal = 0;
 
-				// Pass 1: Combine bytes (Little Endian) to discover the pixel value range
+				/* Combine bytes (little endian) to discover the pixel value range */
 				for (let i = 0; i < totalPixels; i++) {
 					const low = pixelBuffer[i * 2];
 					const high = pixelBuffer[i * 2 + 1];
@@ -66,7 +66,7 @@ export default function DICOMContentModal({
 
 				const range = maxVal - minVal || 1;
 
-				// Pass 2: Scale the high-depth channel down to standard 0-255 scale
+				/* Scale the high-depth channel down to standard 0-255 scale */
 				for (let i = 0; i < totalPixels; i++) {
 					const low = pixelBuffer[i * 2];
 					const high = pixelBuffer[i * 2 + 1];
@@ -82,11 +82,11 @@ export default function DICOMContentModal({
 			const imageInfo = {
 				width: Content.width,
 				height: Content.height,
-				colorType: ColorType.Gray_8, // Map to normalized 8-bit grayscale channel
+				colorType: ColorType.Gray_8, /* Map to normalized 8-bit grayscale channel */
 				alphaType: AlphaType.Opaque,
 			};
 
-			// For Gray_8, rowBytes must equal width exactly (1 byte per pixel)
+			/* For Gray_8, rowBytes must equal width exactly (1 byte per pixel) */
 			return Skia.Image.MakeImage(imageInfo, data, Content.width);
 		} catch (e) {
 			console.error("Failed to create Skia Image from raw bytes:", e);
@@ -95,8 +95,8 @@ export default function DICOMContentModal({
 	}, [Content]);
 	const renderDicomImage = () => {
 		if (dicomSkiaImage) {
-			// Calculate responsive target dimensions while preserving the true aspect ratio
-			const displayWidth = width - 48; // Gives clean margins on both sides of the screen
+			/* Calculate responsive target dimensions while preserving the true aspect ratio */
+			const displayWidth = width - 48; /* Gives clean margins on both sides of the screen */
 			const displayHeight = (Content.height / Content.width) * displayWidth;
 
 			return (
@@ -120,10 +120,10 @@ export default function DICOMContentModal({
 			return null;
 		else if (!ZIPContent) {
 			return Object.entries(Content).map(([k, v]) => {
-				// skip render of frame data para di iload as string
+				/* skip render of frame data para di iload as string */
 				if (k === 'frameData') return null;
 
-				// render metadata
+				/* render metadata */
 				return (
 					<View key={k} className="mb-3">
 						<Text className="text-sm font-semibold text-gray-500 uppercase tracking-wider">{k}</Text>
@@ -221,7 +221,7 @@ export default function DICOMContentModal({
 		try {
 			/* Obtain frame */
 			const tree: Record<string, string[]> = ZIPContent.folders;
-			const uri = `${ZIPContent.cache}${series}/${tree[series][dicom_index ?? 0]}`;
+			const uri = `${ZIPContent.cache}${series !== '/' ? series + '/' : ''}${tree[series][dicom_index ?? 0]}`;
 			const instance = getDICOMInstance(uri);
 			if (!instance)
 				throw new Error(`Unable to initiate DICOM parser for ${uri}.`);
@@ -230,8 +230,8 @@ export default function DICOMContentModal({
 				? metadata.numFrames - 1
 				: frame_index
 			);
-			//console.log(metadata);
-			//console.log(frame_pixels);
+			/* console.log(metadata);
+			 * console.log(frame_pixels); */
 			if (!frame_pixels)
 				throw new Error(`Unable to obtain frames from parser for ${uri}.`);
 			const image = getSkiaImage(metadata, frame_pixels);
@@ -251,8 +251,8 @@ export default function DICOMContentModal({
 	};
 	const RenderSkia = (image: SkImage | null) => {
 		if (image && imageInfo) {
-			// Calculate responsive target dimensions while preserving the true aspect ratio
-			const w = width - 48; // Gives clean margins on both sides of the screen
+			/* Calculate responsive target dimensions while preserving the true aspect ratio */
+			const w = width - 48; /* Gives clean margins on both sides of the screen */
 			const h = (imageInfo.height / imageInfo.width) * w;
 			return (
 				<Canvas style={{ width: w, height: h }}>
@@ -342,17 +342,13 @@ export default function DICOMContentModal({
 								{ !ZIPContent ? 'Metadata' : 'ZIP Contents' }
 							</Text>
 						</TouchableOpacity>
-						{ ZIPContent ? 
-							<TouchableOpacity onPress={() => SwitchTab(1)}
-								className={`flex-1 pb-3 items-center ${pageIndex === 1 ? 'border-b-2 border-[#eb8817]' : ''}`}>
-								<Text className={`text-lg font-bold ${pageIndex === 1 ? 'text-[#eb8817]' : 'text-gray-400'}`}>Images</Text>
-							</TouchableOpacity>
-						: null }
-						{ !ZIPContent ?
-							<TouchableOpacity onPress={() => SwitchTab(2)} className={`flex-1 pb-3 items-center ${pageIndex === 2 ? 'border-b-2 border-[#eb8817]' : ''}`}>
-								<Text className={`text-lg font-bold ${pageIndex === 2 ? 'text-[#eb8817]' : 'text-gray-400'}`}>2D Image Render</Text>
-							</TouchableOpacity>
-						: null }
+						<TouchableOpacity onPress={() => SwitchTab(1)}
+							className={`flex-1 pb-3 items-center ${pageIndex === 1 ? 'border-b-2 border-[#eb8817]' : ''}`}>
+							{ ZIPContent
+								? <Text className={`text-lg font-bold ${pageIndex === 1 ? 'text-[#eb8817]' : 'text-gray-400'}`}>Images</Text>
+								: <Text className={`text-lg font-bold ${pageIndex === 1 ? 'text-[#eb8817]' : 'text-gray-400'}`}>2D Image Render</Text> 
+							}
+						</TouchableOpacity>
 					</View>
 
 					<ScrollView className="flex-1" ref={page_ref} horizontal pagingEnabled
@@ -365,14 +361,14 @@ export default function DICOMContentModal({
 							</ScrollView>
 						</View>
 						
-						<ImagesTab />
-						
 						{ !ZIPContent ?
 							<View style={{width}} className="px-6 pt-4 flex-1 justify-top items-center">
 								<Text className="text-2xl font-bold text-black">Rendering Test</Text>
 								{renderDicomImage()}
 							</View>
-						: null }
+						:
+							<ImagesTab />
+						}
 					</ScrollView>
 				</View>
 			</View>
