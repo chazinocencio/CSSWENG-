@@ -3,12 +3,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
 	Modal, NativeScrollEvent, NativeSyntheticEvent,
 	Pressable,
-	ScrollView, Text, TouchableOpacity, useWindowDimensions, View
+	ScrollView, SectionList, Text, TouchableOpacity, useWindowDimensions, View
 } from 'react-native';
 
 /* skia stuff */
 import { AlphaType, Canvas, ColorType, Skia, Image as SkiaImage, SkImage } from '@shopify/react-native-skia';
-import { createParserJSI, DicomMetaData } from '../../modules/native-dicom';
+import { createParserJSI, DicomMetaData, DicomParserJSI } from '../../modules/native-dicom';
 
 interface DICOMContentModalProps {
 	Visibility: boolean;
@@ -40,68 +40,53 @@ export default function DICOMContentModal({
 	const [frameIndex, setFrameIndex] = useState<number>(0);
 	const [maxFrameIndex, setMaxFrameIndex] = useState<number>(0);
 	const [seriesPlaybackEnabled, setSeriesPlaybackEnabled] = useState<boolean>(false);
-	const [seriesPlaybackInterval, setSeriesPlaybackInterval] = useState<number | null>(null);
 	const page_ref = useRef<ScrollView>(null);
-
 	//ito yun para di na paulit ulit yung parser instance at irereference na lng
-	const currentParserRef = useRef<{ uri: string; instance: any } | null>(null);
-
+	const currentParserRef = useRef<{ uri: string; instance: DicomParserJSI } | null>(null);
+	const getSkiaImage = (metadata: DicomMetaData, frame_pixels: Uint8Array) => {
+		try {
+			let buffer = frame_pixels;
+			if (metadata.bitsAllocated === 16) {
+				const pixel_count = metadata.width * metadata.height;
+				const canvas = new Uint8Array(pixel_count);
+				const temp = new Int32Array(pixel_count);
+				let min = Infinity;
+				let max = -Infinity;
+				for (let i = 0; i < pixel_count; i++) {
+					const low = frame_pixels[i * 2];
+					const high = frame_pixels[i * 2 + 1];
+					let val = (high << 8) | low;
+					if (metadata.pixelRepresentation === 1 && (val & 0x8000))
+						val -= 65536;
+					temp[i] = val;
+					if (val > max) max = val;
+					if (val < min) min = val;
+				}
+				const range = max - min || 1;
+				for (let i = 0; i < pixel_count; i++)
+					canvas[i] = Math.floor(((temp[i] - min) / range) * 255);
+				buffer = canvas;
+			}
+			const skia_data = Skia.Data.fromBytes(buffer);
+			const skia_info: SkiaInfo = {
+				width: metadata.width,
+				height: metadata.height,
+				colorType: ColorType.Gray_8,
+				alphaType: AlphaType.Opaque,
+			};
+			return {
+				info: { ...skia_info },
+				image: Skia.Image.MakeImage(skia_info, skia_data, metadata.width),
+			};
+		} catch (error: any) {
+			console.error('getSkiaImage: ', error.message);
+			return null;
+		}
+	};
 	/* Convert raw Uint8Array bytes to a Skia Image */
 	const dicomSkiaImage = useMemo(() => {
 		if (!Content || !Content.frameData) return null;
-
-		try {
-			let pixelBuffer = Content.frameData;
-
-			if (Content.bitsAllocated === 16) {
-				const totalPixels = Content.width * Content.height;
-				const normArray = new Uint8Array(totalPixels);
-				//storing temporary values
-				const tempValues = new Int32Array(totalPixels);
-				
-				//considering signed integer for circular dicom
-				let minVal = Infinity;
-				let maxVal = -Infinity;
-
-				for (let i = 0; i < totalPixels; i++) {
-					const low = pixelBuffer[i * 2];
-					const high = pixelBuffer[i * 2 + 1];
-					let val = (high << 8) | low;
-
-					// Convert to signed 16-bit integer if pixelRepresentation is 1
-					if (Content.pixelRepresentation === 1) {
-						if (val & 0x8000) val -= 65536;
-					}
-
-					tempValues[i] = val;
-					if (val > maxVal) maxVal = val;
-					if (val < minVal) minVal = val;
-				}
-
-				const range = maxVal - minVal || 1;
-				
-				/* Scale the high-depth channel down to standard 0-255 scale */
-				for (let i = 0; i < totalPixels; i++) {
-					normArray[i] = Math.floor(((tempValues[i] - minVal) / range) * 255);
-				}
-
-				pixelBuffer = normArray;
-			}
-
-			const data = Skia.Data.fromBytes(pixelBuffer);
-			
-			const imageInfo = {
-				width: Content.width,
-				height: Content.height,
-				colorType: ColorType.Gray_8, /* Map to normalized 8-bit grayscale channel */
-				alphaType: AlphaType.Opaque,
-			};
-
-			return Skia.Image.MakeImage(imageInfo, data, Content.width);
-		} catch (e) {
-			console.error("Failed to create Skia Image from raw bytes:", e);
-			return null;
-		}
+		return getSkiaImage(Content, Content.frameData)?.image ?? null;
 	}, [Content]);
 	const renderDicomImage = () => {
 		if (dicomSkiaImage) {
@@ -129,37 +114,51 @@ export default function DICOMContentModal({
 		if (!Content && !ZIPContent)
 			return null;
 		else if (!ZIPContent) {
-			return Object.entries(Content).map(([k, v]) => {
-				/* skip render of frame data para di iload as string */
-				if (k === 'frameData') return null;
+			return (
+				<ScrollView showsVerticalScrollIndicator={false}>
+					{Object.entries(Content).map(([k, v]) => {
+						/* skip render of frame data para di iload as string */
+						if (k === 'frameData') return null;
 
-				/* render metadata */
-				return (
-					<View key={k} className="mb-3">
-						<Text className="text-sm font-semibold text-gray-500 uppercase tracking-wider">{k}</Text>
-						<Text className="text-lg text-gray-800">{String(v)}</Text>
-					</View>
-				);
-			});
+						/* render metadata */
+						return (
+							<View key={k} className="mb-3">
+								<Text className="text-sm font-semibold text-gray-500 uppercase tracking-wider">{k}</Text>
+								<Text className="text-lg text-gray-800">{String(v)}</Text>
+							</View>
+						);
+					})}
+				</ScrollView>	
+			);
 		} else {
-			return Object.entries(ZIPContent.folders).map(([n, v], i) => (
-				<View key={i} className="mb-2">
-					<View className="flex-row items-center mb-2">
-						<Folder color="#354c70" size={16} />
-						<Text className="text-lg font-semibold text-[#f77707] underline active:text-blue-400 active:bg-gray-100
-							active:opacity-60 ml-2" onPress={() => LoadSeries(n, 0)}>{n}</Text>
-					</View>
-					<View className="ml-2 border-l-2 border-black pl-2">
-						{(v as string[]).map((fn, fi) => (
-							<View key={fi} className="flex-row items-center py-2">
+			const sections = Object.entries(ZIPContent.folders).map(
+				([folder, contents]) => ({ title: folder, data: contents as string[] })
+			);
+			return (
+				<SectionList
+					showsVerticalScrollIndicator={false}
+					sections={sections}
+					keyExtractor={(item, index) => item + index.toString()}
+					initialNumToRender={40}
+					renderSectionHeader={({ section: { title } }) => (
+						<View className="flex-row items-center">
+							<Folder color="#354c70" size={16} />
+							<Text className="text-lg font-semibold text-[#f77707] underline active:text-blue-400 active:bg-gray-100
+								active:opacity-60 ml-2" onPress={() => LoadSeries(title, 0)}>{title}</Text>
+						</View>
+					)}
+					renderItem={({ item, index, section }) => (
+						<View className="ml-2 border-l-2 border-black pl-2">
+							<View className="flex-row items-center py-2">
 								<File color="#64748b" size={16} />
 								<Text className="font-medium text-[#1000ff] underline active:text-blue-400 active:bg-gray-100
-									active:opacity-60 ml-2" onPress={() => LoadSeries(n, fi)}>{fn}</Text>
+									active:opacity-60 ml-2" onPress={() => LoadSeries(section.title, index)}>{item}</Text>
 							</View>
-						))}
-					</View>
-				</View>
-			));
+						</View>
+					)}
+					ListFooterComponent={<View className="h-8" />}
+				/>
+			);
 		}
 	}, [Content, ZIPContent]);
 	const EstimateIndex = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -189,60 +188,10 @@ export default function DICOMContentModal({
 				console.error(Error(error).stack);
 			}
 		}
-		function getSkiaImage(metadata: DicomMetaData, frame_pixels: Uint8Array) {
-			try {
-				let buffer = frame_pixels;
-				if (metadata.bitsAllocated === 16) {
-					const pixel_count = metadata.width * metadata.height;
-					const canvas = new Uint8Array(pixel_count);
-					const tempValues = new Int32Array(pixel_count);
-					
-					let min = Infinity;
-					let max = -Infinity;
-					
-					for (let i = 0; i < pixel_count; i++) {
-						const low = frame_pixels[i * 2];
-						const high = frame_pixels[i * 2 + 1];
-						let val = (high << 8) | low;
-
-						// Convert to signed 16-bit integer if pixelRepresentation is 1
-						if (metadata.pixelRepresentation === 1) {
-							if (val & 0x8000) val -= 65536;
-						}
-
-						tempValues[i] = val;
-						if (val > max) max = val;
-						if (val < min) min = val;
-					}
-
-					const range = max - min || 1;
-					for (let i = 0; i < pixel_count; i++) {
-						canvas[i] = Math.floor(((tempValues[i] - min) / range) * 255);
-					}
-					buffer = canvas;
-				}
-				const skia_data = Skia.Data.fromBytes(buffer);
-				const skia_info: SkiaInfo = {
-					width: metadata.width,
-					height: metadata.height,
-					colorType: ColorType.Gray_8,
-					alphaType: AlphaType.Opaque,
-				};
-				return {
-					info: { ...skia_info },
-					image: Skia.Image.MakeImage(skia_info, skia_data, metadata.width),
-				};
-			} catch (error: any) {
-				console.error('getSkiaImage: ', error.message);
-				return null;
-			}
-		}
 		try {
 			const tree: Record<string, string[]> = ZIPContent.folders;
 			const uri = `${ZIPContent.cache}${series !== '/' ? series + '/' : ''}${tree[series][dicom_index]}`;
-
 			let instance;
-			
 			// Check if we already have a parser opened for this specific file
 			if (currentParserRef.current && currentParserRef.current.uri === uri) {
 				instance = currentParserRef.current.instance;
@@ -252,7 +201,6 @@ export default function DICOMContentModal({
 				if (!instance) throw new Error(`Unable to initiate DICOM parser for ${uri}.`);
 				currentParserRef.current = { uri, instance };
 			}
-
 			const metadata = instance.getMetaData();
 			const frame_pixels = instance.getFramePixels(frame_index >= metadata.numFrames
 				? metadata.numFrames - 1
@@ -316,59 +264,61 @@ export default function DICOMContentModal({
 			<Text className="text-black mt-2 text-center">DICOM images to be shown here.</Text>
 		</View>
 	) : (
-		<View style={{width}} className="pt-10 flex-1 items-center">
-			<Text className="text-2xl font-bold text-black">Images</Text>
-			{RenderSkia()}
-			<View className="flex-row gap-x-4">
-				<View className="flex-col items-center">
-					<View className="h-7" />
-					<Pressable className={`p-1 active:bg-yellow-500 ${ seriesPlaybackEnabled ? 'bg-blue-500' : '' }`}
-						onPress={() => setSeriesPlaybackEnabled(!seriesPlaybackEnabled)}>
-						<Play color="black" fill="black" size={24} />
-					</Pressable>
-				</View>
-				<View className="flex-col items-center">
-					<Text className="text-xl text-black">Series</Text>
-					<View className="flex-row gap-x-2 justify-center items-center">
-						<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
-							seriesName,
-							seriesIndex === 1 ? maxSeriesIndex - 1 : seriesIndex - 2,
-							frameIndex - 1
-						)}>
-							<ArrowBigLeft color="black" fill="black" size={24} />
-						</Pressable>
-						<Text className="pt-1 text-xl text-black">{`${seriesIndex} of ${maxSeriesIndex}`}</Text>
-						<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
-							seriesName,
-							seriesIndex === maxSeriesIndex ? 0 : seriesIndex,
-							frameIndex - 1
-						)}>
-							<ArrowBigRight color="black" fill="black" size={24} />
+		<ScrollView showsVerticalScrollIndicator={false} className="mb-[5%]">
+			<View style={{width}} className="flex-1 items-center">
+				<Text className="text-2xl font-bold text-black">Images</Text>
+				{RenderSkia()}
+				<View className="flex-row gap-x-4">
+					<View className="flex-col items-center">
+						<View className="h-7" />
+						<Pressable className={`p-1 active:bg-yellow-500 ${ seriesPlaybackEnabled ? 'bg-blue-500' : '' }`}
+							onPress={() => setSeriesPlaybackEnabled(!seriesPlaybackEnabled)}>
+							<Play color="black" fill="black" size={24} />
 						</Pressable>
 					</View>
-				</View>
-				<View className="flex-col items-center">
-					<Text className="text-xl text-black">Frame</Text>
-					<View className="flex-row gap-x-2 justify-center items-center">
-						<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
-							seriesName,
-							seriesIndex - 1,
-							frameIndex === 1 ? maxFrameIndex - 1 : frameIndex - 2
-						)}>
-							<ArrowBigLeft color="black" fill="black" size={24} />
-						</Pressable>
-						<Text className="pt-1 text-xl text-black">{`${frameIndex} of ${maxFrameIndex}`}</Text>
-						<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
-							seriesName,
-							seriesIndex - 1,
-							frameIndex === maxFrameIndex ? 0 : frameIndex
-						)}>
-							<ArrowBigRight color="black" fill="black" size={24} />
-						</Pressable>
+					<View className="flex-col items-center">
+						<Text className="text-xl text-black">Series</Text>
+						<View className="flex-row gap-x-2 justify-center items-center">
+							<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
+								seriesName,
+								seriesIndex === 1 ? maxSeriesIndex - 1 : seriesIndex - 2,
+								frameIndex - 1
+							)}>
+								<ArrowBigLeft color="black" fill="black" size={24} />
+							</Pressable>
+							<Text className="pt-1 text-xl text-black">{`${seriesIndex} of ${maxSeriesIndex}`}</Text>
+							<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
+								seriesName,
+								seriesIndex === maxSeriesIndex ? 0 : seriesIndex,
+								frameIndex - 1
+							)}>
+								<ArrowBigRight color="black" fill="black" size={24} />
+							</Pressable>
+						</View>
+					</View>
+					<View className="flex-col items-center">
+						<Text className="text-xl text-black">Frame</Text>
+						<View className="flex-row gap-x-2 justify-center items-center">
+							<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
+								seriesName,
+								seriesIndex - 1,
+								frameIndex === 1 ? maxFrameIndex - 1 : frameIndex - 2
+							)}>
+								<ArrowBigLeft color="black" fill="black" size={24} />
+							</Pressable>
+							<Text className="pt-1 text-xl text-black">{`${frameIndex} of ${maxFrameIndex}`}</Text>
+							<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
+								seriesName,
+								seriesIndex - 1,
+								frameIndex === maxFrameIndex ? 0 : frameIndex
+							)}>
+								<ArrowBigRight color="black" fill="black" size={24} />
+							</Pressable>
+						</View>
 					</View>
 				</View>
 			</View>
-		</View>
+		</ScrollView>
 	);
 	return (
 		<Modal animationType="slide" transparent={true} visible={Visibility} onRequestClose={ModalClosed} onShow={ModalShown}>
@@ -402,10 +352,11 @@ export default function DICOMContentModal({
 						showsHorizontalScrollIndicator={false} onScroll={EstimateIndex} scrollEventThrottle={4}>
 						
 						<View style={{width}} className="px-6 pt-4">
-							<ScrollView showsVerticalScrollIndicator={false}>
+							{MetadataOrZIPContents}
+							{/*<ScrollView showsVerticalScrollIndicator={false}>
 								{MetadataOrZIPContents}
 								{ ZIPContent ? <View className="h-8" /> : null }
-							</ScrollView>
+							</ScrollView>*/}
 						</View>
 						
 						{ !ZIPContent ?

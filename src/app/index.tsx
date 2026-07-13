@@ -76,6 +76,8 @@ export default function Page() {
     };
 	const UploadSuccessZIP = async (fileUri: string) => {
 		setIsLoading(true);
+		const instant = () => new Promise(res => setTimeout(res, 5));
+		let file_or_folder_per_30 = 0;
 		try {
 			const uuid = Crypto.randomUUID();
 			const cpwd = new EFS.Directory(EFS.Paths.cache, uuid);
@@ -116,11 +118,19 @@ export default function Page() {
 								dicom_uris[iname] = [];
 							dicom_uris[iname].push(jname);
 						}
+						if (++file_or_folder_per_30 > 30) {
+							file_or_folder_per_30 = 1;
+							await instant();
+						}
 					}
 					if (!has_dicom)
 						i.delete();
 					else
 						dicom_uris[iname].sort((a, b) => a.localeCompare(b));
+					if (++file_or_folder_per_30 > 30) {
+						file_or_folder_per_30 = 1;
+						await instant();
+					}
 				}
 			}
 			/* Walang nahanap na DICOM sa mga directories
