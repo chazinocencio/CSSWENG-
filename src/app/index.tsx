@@ -105,7 +105,7 @@ export default function Page() {
 							continue;
 						}
 						const jext = juri.substring(juri.lastIndexOf('.') + 1);
-						const is_dicom = jext === 'dcm';
+						const is_dicom = jext.toLowerCase() === 'dcm';
 						has_dicom = has_dicom || is_dicom;
 						if (!is_dicom) {
 							j.delete();
@@ -135,7 +135,7 @@ export default function Page() {
 							continue;
 						}
 						const ext = uri.substring(uri.lastIndexOf('.') + 1);
-						const is_dicom = ext === 'dcm';
+						const is_dicom = ext.toLowerCase() === 'dcm';
 						has_root_dicom = has_root_dicom || is_dicom;
 						if (is_dicom) {
 							const name = uri.substring(uri.lastIndexOf('/') + 1);

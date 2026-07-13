@@ -1,5 +1,5 @@
-import { ArrowBigLeft, ArrowBigRight, File, Folder } from 'lucide-react-native';
-import { useMemo, useRef, useState } from 'react';
+import { ArrowBigLeft, ArrowBigRight, File, Folder, Play } from 'lucide-react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
 	Modal, NativeScrollEvent, NativeSyntheticEvent,
 	Pressable,
@@ -39,6 +39,8 @@ export default function DICOMContentModal({
 	const [maxSeriesIndex, setMaxSeriesIndex] = useState<number>(0);
 	const [frameIndex, setFrameIndex] = useState<number>(0);
 	const [maxFrameIndex, setMaxFrameIndex] = useState<number>(0);
+	const [seriesPlaybackEnabled, setSeriesPlaybackEnabled] = useState<boolean>(false);
+	const [seriesPlaybackInterval, setSeriesPlaybackInterval] = useState<number | null>(null);
 	const page_ref = useRef<ScrollView>(null);
 	/* Convert raw Uint8Array bytes to a Skia Image */
 	const dicomSkiaImage = useMemo(() => {
@@ -163,9 +165,10 @@ export default function DICOMContentModal({
 		SwitchTab(0);
 		setImage(null);
 		setImageInfo(null);
+		setSeriesPlaybackEnabled(false);
 		ModalClosed();
 	};
-	const LoadSeries = (series: string, dicom_index: number = 0, frame_index: number = 0) => {
+	const LoadSeries = (series: string, dicom_index: number = 0, frame_index: number = 0, playback: boolean = false) => {
 		function getDICOMInstance(uri: string) {
 			try {
 				const clean_uri = uri.replace(/^file:\/\//, '');
@@ -221,7 +224,7 @@ export default function DICOMContentModal({
 		try {
 			/* Obtain frame */
 			const tree: Record<string, string[]> = ZIPContent.folders;
-			const uri = `${ZIPContent.cache}${series !== '/' ? series + '/' : ''}${tree[series][dicom_index ?? 0]}`;
+			const uri = `${ZIPContent.cache}${series !== '/' ? series + '/' : ''}${tree[series][dicom_index]}`;
 			const instance = getDICOMInstance(uri);
 			if (!instance)
 				throw new Error(`Unable to initiate DICOM parser for ${uri}.`);
@@ -242,6 +245,7 @@ export default function DICOMContentModal({
 			setMaxSeriesIndex(tree[series].length);
 			setFrameIndex(frame_index + 1);
 			setMaxFrameIndex(metadata.numFrames);
+			setSeriesPlaybackEnabled(playback);
 			SwitchTab(1);
 		} catch (error: any) {
 			console.error(`Failed to load series: `, error.message);
@@ -249,7 +253,18 @@ export default function DICOMContentModal({
 			return null;
 		}
 	};
-	const RenderSkia = (image: SkImage | null) => {
+	useEffect(() => {
+		if (seriesName && seriesPlaybackEnabled) {
+			const interval = setInterval(() => LoadSeries(
+				seriesName,
+				seriesIndex === maxSeriesIndex ? 0 : seriesIndex,
+				frameIndex - 1,
+				true
+			), 100);
+			return () => clearInterval(interval);
+		}
+	}, [seriesPlaybackEnabled, image]);
+	const RenderSkia = () => {
 		if (image && imageInfo) {
 			/* Calculate responsive target dimensions while preserving the true aspect ratio */
 			const w = width - 48; /* Gives clean margins on both sides of the screen */
@@ -278,12 +293,19 @@ export default function DICOMContentModal({
 	) : (
 		<View style={{width}} className="pt-10 flex-1 items-center">
 			<Text className="text-2xl font-bold text-black">Images</Text>
-			{RenderSkia(image)}
+			{RenderSkia()}
 			<View className="flex-row gap-x-4">
+				<View className="flex-col items-center">
+					<View className="h-7" />
+					<Pressable className={`p-1 active:bg-yellow-500 ${ seriesPlaybackEnabled ? 'bg-blue-500' : '' }`}
+						onPress={() => setSeriesPlaybackEnabled(!seriesPlaybackEnabled)}>
+						<Play color="black" fill="black" size={24} />
+					</Pressable>
+				</View>
 				<View className="flex-col items-center">
 					<Text className="text-xl text-black">Series</Text>
 					<View className="flex-row gap-x-2 justify-center items-center">
-						<Pressable className="active:bg-yellow-500" onPress={() => LoadSeries(
+						<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
 							seriesName,
 							seriesIndex === 1 ? maxSeriesIndex - 1 : seriesIndex - 2,
 							frameIndex - 1
@@ -291,7 +313,7 @@ export default function DICOMContentModal({
 							<ArrowBigLeft color="black" fill="black" size={24} />
 						</Pressable>
 						<Text className="pt-1 text-xl text-black">{`${seriesIndex} of ${maxSeriesIndex}`}</Text>
-						<Pressable className="active:bg-yellow-500" onPress={() => LoadSeries(
+						<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
 							seriesName,
 							seriesIndex === maxSeriesIndex ? 0 : seriesIndex,
 							frameIndex - 1
@@ -303,7 +325,7 @@ export default function DICOMContentModal({
 				<View className="flex-col items-center">
 					<Text className="text-xl text-black">Frame</Text>
 					<View className="flex-row gap-x-2 justify-center items-center">
-						<Pressable className="active:bg-yellow-500" onPress={() => LoadSeries(
+						<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
 							seriesName,
 							seriesIndex - 1,
 							frameIndex === 1 ? maxFrameIndex - 1 : frameIndex - 2
@@ -311,7 +333,7 @@ export default function DICOMContentModal({
 							<ArrowBigLeft color="black" fill="black" size={24} />
 						</Pressable>
 						<Text className="pt-1 text-xl text-black">{`${frameIndex} of ${maxFrameIndex}`}</Text>
-						<Pressable className="active:bg-yellow-500" onPress={() => LoadSeries(
+						<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
 							seriesName,
 							seriesIndex - 1,
 							frameIndex === maxFrameIndex ? 0 : frameIndex
@@ -366,9 +388,7 @@ export default function DICOMContentModal({
 								<Text className="text-2xl font-bold text-black">Rendering Test</Text>
 								{renderDicomImage()}
 							</View>
-						:
-							<ImagesTab />
-						}
+						: ImagesTab() }
 					</ScrollView>
 				</View>
 			</View>
