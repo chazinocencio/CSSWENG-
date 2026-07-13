@@ -42,6 +42,10 @@ export default function DICOMContentModal({
 	const [seriesPlaybackEnabled, setSeriesPlaybackEnabled] = useState<boolean>(false);
 	const [seriesPlaybackInterval, setSeriesPlaybackInterval] = useState<number | null>(null);
 	const page_ref = useRef<ScrollView>(null);
+
+	//ito yun para di na paulit ulit yung parser instance at irereference na lng
+	const currentParserRef = useRef<{ uri: string; instance: any } | null>(null);
+
 	/* Convert raw Uint8Array bytes to a Skia Image */
 	const dicomSkiaImage = useMemo(() => {
 		if (!Content || !Content.frameData) return null;
@@ -49,31 +53,36 @@ export default function DICOMContentModal({
 		try {
 			let pixelBuffer = Content.frameData;
 
-			/* If the DICOM is 16-bit (2 bytes per pixel), downsample it to 8-bit for Skia Gray_8 */
 			if (Content.bitsAllocated === 16) {
 				const totalPixels = Content.width * Content.height;
 				const normArray = new Uint8Array(totalPixels);
+				//storing temporary values
+				const tempValues = new Int32Array(totalPixels);
 				
-				let minVal = 65535;
-				let maxVal = 0;
+				//considering signed integer for circular dicom
+				let minVal = Infinity;
+				let maxVal = -Infinity;
 
-				/* Combine bytes (little endian) to discover the pixel value range */
 				for (let i = 0; i < totalPixels; i++) {
 					const low = pixelBuffer[i * 2];
 					const high = pixelBuffer[i * 2 + 1];
-					const val = (high << 8) | low;
+					let val = (high << 8) | low;
+
+					// Convert to signed 16-bit integer if pixelRepresentation is 1
+					if (Content.pixelRepresentation === 1) {
+						if (val & 0x8000) val -= 65536;
+					}
+
+					tempValues[i] = val;
 					if (val > maxVal) maxVal = val;
 					if (val < minVal) minVal = val;
 				}
 
 				const range = maxVal - minVal || 1;
-
+				
 				/* Scale the high-depth channel down to standard 0-255 scale */
 				for (let i = 0; i < totalPixels; i++) {
-					const low = pixelBuffer[i * 2];
-					const high = pixelBuffer[i * 2 + 1];
-					const val = (high << 8) | low;
-					normArray[i] = Math.floor(((val - minVal) / range) * 255);
+					normArray[i] = Math.floor(((tempValues[i] - minVal) / range) * 255);
 				}
 
 				pixelBuffer = normArray;
@@ -88,7 +97,6 @@ export default function DICOMContentModal({
 				alphaType: AlphaType.Opaque,
 			};
 
-			/* For Gray_8, rowBytes must equal width exactly (1 byte per pixel) */
 			return Skia.Image.MakeImage(imageInfo, data, Content.width);
 		} catch (e) {
 			console.error("Failed to create Skia Image from raw bytes:", e);
@@ -166,6 +174,7 @@ export default function DICOMContentModal({
 		setImage(null);
 		setImageInfo(null);
 		setSeriesPlaybackEnabled(false);
+		currentParserRef.current = null; // Clear reference to allow Garbage collection or (GC)
 		ModalClosed();
 	};
 	const LoadSeries = (series: string, dicom_index: number = 0, frame_index: number = 0, playback: boolean = false) => {
@@ -186,21 +195,29 @@ export default function DICOMContentModal({
 				if (metadata.bitsAllocated === 16) {
 					const pixel_count = metadata.width * metadata.height;
 					const canvas = new Uint8Array(pixel_count);
-					let min = 65535;
-					let max = 0;
+					const tempValues = new Int32Array(pixel_count);
+					
+					let min = Infinity;
+					let max = -Infinity;
+					
 					for (let i = 0; i < pixel_count; i++) {
 						const low = frame_pixels[i * 2];
 						const high = frame_pixels[i * 2 + 1];
-						const val = (high << 8) | low;
+						let val = (high << 8) | low;
+
+						// Convert to signed 16-bit integer if pixelRepresentation is 1
+						if (metadata.pixelRepresentation === 1) {
+							if (val & 0x8000) val -= 65536;
+						}
+
+						tempValues[i] = val;
 						if (val > max) max = val;
 						if (val < min) min = val;
 					}
+
 					const range = max - min || 1;
 					for (let i = 0; i < pixel_count; i++) {
-						const low = frame_pixels[i * 2];
-						const high = frame_pixels[i * 2 + 1];
-						const val = (high << 8) | low;
-						canvas[i] = Math.floor((val - min) / range * 255);
+						canvas[i] = Math.floor(((tempValues[i] - min) / range) * 255);
 					}
 					buffer = canvas;
 				}
@@ -217,17 +234,25 @@ export default function DICOMContentModal({
 				};
 			} catch (error: any) {
 				console.error('getSkiaImage: ', error.message);
-				console.error(Error(error).stack ?? '');
 				return null;
 			}
 		}
 		try {
-			/* Obtain frame */
 			const tree: Record<string, string[]> = ZIPContent.folders;
 			const uri = `${ZIPContent.cache}${series !== '/' ? series + '/' : ''}${tree[series][dicom_index]}`;
-			const instance = getDICOMInstance(uri);
-			if (!instance)
-				throw new Error(`Unable to initiate DICOM parser for ${uri}.`);
+
+			let instance;
+			
+			// Check if we already have a parser opened for this specific file
+			if (currentParserRef.current && currentParserRef.current.uri === uri) {
+				instance = currentParserRef.current.instance;
+			} else {
+				// Only create a new parser if the file actually changed
+				instance = getDICOMInstance(uri);
+				if (!instance) throw new Error(`Unable to initiate DICOM parser for ${uri}.`);
+				currentParserRef.current = { uri, instance };
+			}
+
 			const metadata = instance.getMetaData();
 			const frame_pixels = instance.getFramePixels(frame_index >= metadata.numFrames
 				? metadata.numFrames - 1
