@@ -1,9 +1,10 @@
-import { ArrowBigLeft, ArrowBigRight, File, Folder, Play } from 'lucide-react-native';
+import { ArrowBigLeft, ArrowBigRight, ChevronDown, ChevronRight, File, Folder, Play } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
 	Modal, NativeScrollEvent, NativeSyntheticEvent,
 	Pressable,
-	ScrollView, SectionList, Text, TouchableOpacity, useWindowDimensions, View
+	ScrollView, SectionList,
+	Text, TouchableOpacity, useWindowDimensions, View
 } from 'react-native';
 
 /* skia stuff */
@@ -32,6 +33,7 @@ export default function DICOMContentModal({
 }:　DICOMContentModalProps) {
 	const { width } = useWindowDimensions();
 	const [pageIndex, setPageIndex] = useState<number>(0);
+	const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set<string>());
 	const [image, setImage] = useState<SkImage | null>(null);
 	const [imageInfo, setImageInfo] = useState<SkiaInfo | null>(null);
 	const [seriesName, setSeriesName] = useState<string | null>(null);
@@ -110,6 +112,13 @@ export default function DICOMContentModal({
 			return <Text className="text-gray-500 mt-10">Failed to render raw pixels.</Text>;
 		}
 	};
+	const ToggleFolder = (title: string) => {
+		setExpandedFolders(prev => {
+			const next = new Set(prev);
+			if (prev.has(title)) next.delete(title); else next.add(title);
+			return next;
+		});
+	};
 	const MetadataOrZIPContents = useMemo(() => {
 		if (!Content && !ZIPContent)
 			return null;
@@ -132,27 +141,35 @@ export default function DICOMContentModal({
 			);
 		} else {
 			const sections = Object.entries(ZIPContent.folders).map(
-				([folder, contents]) => ({ title: folder, data: contents as string[] })
+				([folder, contents]) => ({
+					title: folder,
+					data: expandedFolders.has(folder) ? contents as string[] : []
+				})
 			);
 			return (
 				<SectionList
 					showsVerticalScrollIndicator={false}
 					sections={sections}
-					keyExtractor={(item, index) => item + index.toString()}
-					initialNumToRender={40}
+					keyExtractor={(item, index) => item + index}
+					initialNumToRender={30}
 					renderSectionHeader={({ section: { title } }) => (
-						<View className="flex-row items-center">
+						<View className="flex-row gap-x-2 items-center">
+							<Pressable className="p-2 active:bg-yellow-500" onPress={() => ToggleFolder(title)}>
+								{!expandedFolders.has(title)
+									? <ChevronRight color="#354c70" size={16} />
+									: <ChevronDown color="#354c70" size={16} />}
+							</Pressable>
 							<Folder color="#354c70" size={16} />
 							<Text className="text-lg font-semibold text-[#f77707] underline active:text-blue-400 active:bg-gray-100
-								active:opacity-60 ml-2" onPress={() => LoadSeries(title, 0)}>{title}</Text>
+								active:opacity-60" onPress={() => LoadSeries(title, 0)}>{title}</Text>
 						</View>
 					)}
 					renderItem={({ item, index, section }) => (
-						<View className="ml-2 border-l-2 border-black pl-2">
-							<View className="flex-row items-center py-2">
+						<View className="ml-4 border-l-2 border-black pl-2">
+							<View className="flex-row gap-x-2 items-center pl-1 py-2">
 								<File color="#64748b" size={16} />
 								<Text className="font-medium text-[#1000ff] underline active:text-blue-400 active:bg-gray-100
-									active:opacity-60 ml-2" onPress={() => LoadSeries(section.title, index)}>{item}</Text>
+									active:opacity-60" onPress={() => LoadSeries(section.title, index)}>{item}</Text>
 							</View>
 						</View>
 					)}
@@ -160,7 +177,7 @@ export default function DICOMContentModal({
 				/>
 			);
 		}
-	}, [Content, ZIPContent]);
+	}, [Content, ZIPContent, expandedFolders]);
 	const EstimateIndex = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
 		setPageIndex(Math.round(e.nativeEvent.contentOffset.x / e.nativeEvent.layoutMeasurement.width));
 	};
@@ -170,6 +187,7 @@ export default function DICOMContentModal({
 	};
 	const CloseButtonPressed = () => {
 		SwitchTab(0);
+		setExpandedFolders(new Set<string>());
 		setImage(null);
 		setImageInfo(null);
 		setSeriesPlaybackEnabled(false);
@@ -353,10 +371,6 @@ export default function DICOMContentModal({
 						
 						<View style={{width}} className="px-6 pt-4">
 							{MetadataOrZIPContents}
-							{/*<ScrollView showsVerticalScrollIndicator={false}>
-								{MetadataOrZIPContents}
-								{ ZIPContent ? <View className="h-8" /> : null }
-							</ScrollView>*/}
 						</View>
 						
 						{ !ZIPContent ?
