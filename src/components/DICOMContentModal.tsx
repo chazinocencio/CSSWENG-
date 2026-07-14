@@ -1,4 +1,4 @@
-import { ArrowBigLeft, ArrowBigRight, ChevronDown, ChevronRight, File, Folder, Play } from 'lucide-react-native';
+import { ArrowBigLeft, ArrowBigRight, ChevronDown, ChevronRight, File, Folder, Play, Pause } from 'lucide-react-native';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
 	Modal, NativeScrollEvent, NativeSyntheticEvent,
@@ -291,7 +291,7 @@ export default function DICOMContentModal({
 						<View className="h-7" />
 						<Pressable className={`p-1 active:bg-yellow-500 ${ seriesPlaybackEnabled ? 'bg-blue-500' : '' }`}
 							onPress={() => setSeriesPlaybackEnabled(!seriesPlaybackEnabled)}>
-							<Play color="black" fill="black" size={24} />
+							{seriesPlaybackEnabled ? <Pause color="black" fill="black" size={24} /> : <Play color="black" fill="black" size={24} />}
 						</Pressable>
 					</View>
 					<View className="flex-col items-center">
