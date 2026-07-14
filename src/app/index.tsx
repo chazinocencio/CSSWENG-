@@ -123,10 +123,14 @@ export default function Page() {
 							await instant();
 						}
 					}
-					if (!has_dicom)
+					if (!has_dicom) {
 						i.delete();
-					else
-						dicom_uris[iname].sort((a, b) => a.localeCompare(b));
+					}
+					else {
+						dicom_uris[iname].sort((a, b) => a.localeCompare(
+							b, undefined, { numeric: true, sensitivity: 'case' }
+						));
+					}
 					if (++file_or_folder_per_30 > 30) {
 						file_or_folder_per_30 = 1;
 						await instant();
@@ -158,10 +162,13 @@ export default function Page() {
 						}
 					}
 				}
-				if (!has_root_dicom)
+				if (!has_root_dicom) {
 					throw new Error('Invalid DICOM ZIP file.');
-				else
-					dicom_uris['/'].sort((a, b) => a.localeCompare(b));
+				} else {
+					dicom_uris['/'].sort((a, b) => a.localeCompare(
+						b, undefined, { numeric: true, sensitivity: 'case' }
+					));
+				}
 			}
 			const zip = {
 				source: fileUri,
