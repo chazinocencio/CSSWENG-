@@ -1,9 +1,9 @@
 import * as Crypto from 'expo-crypto';
 import * as EFS from 'expo-file-system';
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ActivityIndicator, Text, View } from "react-native";
 import { unzip } from 'react-native-zip-archive';
-import { createParserJSI } from "../../modules/native-dicom";
+import { createParserJSI, DicomParserJSI } from "../../modules/native-dicom";
 import DICOMContentModal from "../components/DICOMContentModal";
 import UploadDCMButton from "../components/UploadDCMButton";
 
@@ -15,6 +15,11 @@ export default function Page() {
 	const [ZIPContent, setZIPContent] = useState<any>(null);
 	const [isDICOMContentModalVisible, setIsDICOMContentModalVisible] = useState<boolean>(false);
 	const [isLoading, setIsLoading] = useState<boolean>(false);
+
+	const [mprMode, setMprMode] = useState<'Axial' | 'Coronal' | 'Sagittal'>('Axial');
+	const [mprSlice, setMprSlice] = useState<number>(0);
+	const parserRef = useRef<DicomParserJSI | null>(null);
+
 	const DICOMContentModalClosed = () => {
 		setError(false);
 		setTarget("");
@@ -22,6 +27,7 @@ export default function Page() {
 		setDICOMContent(null);
 		setZIPContent(null);
 		setIsDICOMContentModalVisible(false);
+		parserRef.current = null;
 	};
 	const DICOMContentModalShown = () => {
 		setIsLoading(false);
@@ -47,6 +53,8 @@ export default function Page() {
 			if (!parser)
 				throw new Error('Failed to create a JSI parser instance.');
 
+			parserRef.current = parser;
+
 			const dicom_md = parser.getMetaData();
 			if (!dicom_md)
 				throw new Error('Failed to obtain metadata from DICOM');
@@ -65,6 +73,8 @@ export default function Page() {
 			setTarget(fileUri);
 			setDICOMContent(contentWithImage);
 			setZIPContent(null);
+			setMprMode('Axial');
+			setMprSlice(0);
 			setStatusText(`Upload success. (${dicom_md.width}x${dicom_md.height}, ${dicom_md.numFrames} frames)`);
 			setIsDICOMContentModalVisible(true);
 		} catch (error: any) {
@@ -74,6 +84,34 @@ export default function Page() {
 			setStatusText(error.message);
 		}
     };
+	const handleMprChange = (mode: 'Axial' | 'Coronal' | 'Sagittal', index: number) => {
+		const parser = parserRef.current;
+
+		if (!parser) {
+			// If we are in ZIP mode, we let DICOMContentModal handle it internally
+			// for now, or just ignore if it's the global parser.
+			setMprMode(mode);
+			setMprSlice(index);
+			return;
+		}
+
+		const slice = parser.getMPRSlice(mode, index);
+		if (slice && slice.frameData) {
+			setDICOMContent((prev: any) => {
+				if (!prev) return null;
+				return {
+					...prev,
+					width: slice.width,
+					height: slice.height,
+					frameData: slice.frameData
+				};
+			});
+			setMprMode(mode);
+			setMprSlice(index);
+		} else {
+			console.error(`MPR slice returned null or empty for ${mode} at index ${index}`);
+		}
+	};
 	const UploadSuccessZIP = async (fileUri: string) => {
 		setIsLoading(true);
 		const instant = () => new Promise(res => setTimeout(res, 5));
@@ -128,7 +166,7 @@ export default function Page() {
 					}
 					else {
 						dicom_uris[iname].sort((a, b) => a.localeCompare(
-							b, undefined, { numeric: true, sensitivity: 'case' }
+							b, undefined, { numeric: true, sensitivity: 'base' }
 						));
 					}
 					if (++file_or_folder_per_30 > 30) {
@@ -166,7 +204,7 @@ export default function Page() {
 					throw new Error('Invalid DICOM ZIP file.');
 				} else {
 					dicom_uris['/'].sort((a, b) => a.localeCompare(
-						b, undefined, { numeric: true, sensitivity: 'case' }
+						b, undefined, { numeric: true, sensitivity: 'base' }
 					));
 				}
 			}
@@ -229,7 +267,11 @@ export default function Page() {
 			<UploadButton />
 			<DICOMContentModal Content={DICOMContent} ZIPContent={ZIPContent} TargetFile={target}
 				Visibility={isDICOMContentModalVisible} ModalClosed={DICOMContentModalClosed}
-				ModalShown={DICOMContentModalShown}/>
+				ModalShown={DICOMContentModalShown}
+				mprParser={parserRef.current}
+				onMprChange={handleMprChange}
+				currentViewMode={mprMode}
+				currentSliceIndex={mprSlice} />
 		</View>
 	);
 }

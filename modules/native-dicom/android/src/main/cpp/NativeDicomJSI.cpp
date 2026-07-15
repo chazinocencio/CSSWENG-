@@ -1,11 +1,11 @@
 #include "NativeDicomJSI.h"
+#include "VolumeBuffer.h"
+#include "GeometryUtils.h"
 #include <android/log.h>
 #include <string.h>
+#include <map>
+#include <algorithm>
 
-// Added the DicomeMutableBuffer Class
-// Used to counter Hermes Memory Segmentation fault (yes that's a thing pala)
-// allocating natively in C++ first to safely write pixels in it
-// saka mapupunta yung keys sa javascript
 class DicomMutableBuffer : public facebook::jsi::MutableBuffer {
 public:
     DicomMutableBuffer(size_t size) : size_(size), data_(new uint8_t[size]) {}
@@ -17,82 +17,56 @@ private:
     uint8_t* data_;
 };
 
-#define JSI_TAG "NativeDicomJSI"
-#define JSI_LOGI(...) __android_log_print(ANDROID_LOG_INFO, JSI_TAG, __VA_ARGS__)
-#define JSI_LOGE(...) __android_log_print(ANDROID_LOG_ERROR, JSI_TAG, __VA_ARGS__)
-
-using namespace facebook;
-
 namespace facebook {
 namespace jsi {
 
-DicomParserJSI::DicomParserJSI(std::shared_ptr<DicomParser> parser) : parser_(parser) {
-    JSI_LOGI("DicomParserJSI created");
-}
-
-DicomParserJSI::~DicomParserJSI() {
-    JSI_LOGI("DicomParserJSI destroyed");
-}
+DicomParserJSI::DicomParserJSI(std::shared_ptr<DicomParser> parser) : parser_(parser) {}
+DicomParserJSI::~DicomParserJSI() {}
 
 Value DicomParserJSI::get(Runtime &runtime, const PropNameID &name) {
     auto methodName = name.utf8(runtime);
-
     if (methodName == "getMetaData") {
-        return Function::createFromHostFunction(
-            runtime, name, 0,
-            [this](Runtime &rt, const Value &thisVal, const Value *args, size_t count) -> Value {
-                DicomMetaData meta = parser_->getMetaData();
-                Object result(rt);
-                result.setProperty(rt, "width", (double)meta.width);
-                result.setProperty(rt, "height", (double)meta.height);
-                result.setProperty(rt, "numFrames", (double)meta.num_frames);
-                result.setProperty(rt, "bitsAllocated", (double)meta.bits_allocated);
-                result.setProperty(rt, "bitsStored", (double)meta.bits_stored);
-                result.setProperty(rt, "pixelRepresentation", (double)meta.pixel_representation);
-                result.setProperty(rt, "photometricInterpretation", String::createFromUtf8(rt, meta.photometricInterpretation));
-                return result;
-            });
-    }
+        return Function::createFromHostFunction(runtime, name, 0, [this](Runtime &rt, const Value &thisVal, const Value *args, size_t count) -> Value {
+            DicomMetaData meta = parser_->getMetaData();
+            Object result(rt);
+            result.setProperty(rt, "width", (double)meta.width);
+            result.setProperty(rt, "height", (double)meta.height);
+            result.setProperty(rt, "numFrames", (double)meta.num_frames);
+            result.setProperty(rt, "bitsAllocated", (double)meta.bits_allocated);
+            result.setProperty(rt, "bitsStored", (double)meta.bits_stored);
+            result.setProperty(rt, "pixelRepresentation", (double)meta.pixel_representation);
+            result.setProperty(rt, "photometricInterpretation", String::createFromUtf8(rt, meta.photometricInterpretation));
 
-    // edited to use the safe memory class specified above
+            auto putArray = [&](const char* prop, double* vals, int size) {
+                Array arr = rt.global().getPropertyAsFunction(rt, "Array").callAsConstructor(rt, size).asObject(rt).asArray(rt);
+                for (int i = 0; i < size; i++) arr.setValueAtIndex(rt, i, vals[i]);
+                result.setProperty(rt, prop, arr);
+            };
+            putArray("imagePosition", meta.imagePosition, 3);
+            putArray("imageOrientation", meta.imageOrientation, 6);
+
+            Array ps = rt.global().getPropertyAsFunction(rt, "Array").callAsConstructor(rt, 2).asObject(rt).asArray(rt);
+            ps.setValueAtIndex(rt, 0, meta.pixel_spacing_x);
+            ps.setValueAtIndex(rt, 1, meta.pixel_spacing_y);
+            result.setProperty(rt, "pixelSpacing", ps);
+            result.setProperty(rt, "sliceThickness", meta.pixel_spacing_z);
+            return result;
+        });
+    }
     if (methodName == "getFramePixels") {
-            return Function::createFromHostFunction(
-                runtime, name, 1,
-                [this](Runtime &rt, const Value &thisVal, const Value *args, size_t count) -> Value {
-                    if (count < 1 || !args[0].isNumber()) {
-                        throw JSError(rt, "getFramePixels: Expected frame index as number");
-                    }
-                    
-                    int32_t frameIndex = (int32_t)args[0].asNumber();
-                    std::vector<uint8_t> pixels;
-                    
-                    if (!parser_->getFramePixels(frameIndex, pixels)) {
-                        return Value::null();
-                    }
-
-                    // main changes made
-                    // 1. Create a native memory buffer that Hermes can understand safely
-                    auto mutableBuffer = std::make_shared<DicomMutableBuffer>(pixels.size());
-                    
-                    // 2. Copy the DICOM pixels directly into this native buffer (No crash!)
-                    memcpy(mutableBuffer->data(), pixels.data(), pixels.size());
-
-                    // 3. Create the JS ArrayBuffer by handing over the safe native memory
-                    ArrayBuffer buffer(rt, mutableBuffer);
-
-                    // 4. Wrap it in a JS Uint8Array and return
-                    Function uint8ArrayConstructor = rt.global().getPropertyAsFunction(rt, "Uint8Array");
-                    return uint8ArrayConstructor.callAsConstructor(rt, buffer);
-                });
-        }
-
-        return Value::undefined();
+        return Function::createFromHostFunction(runtime, name, 1, [this](Runtime &rt, const Value &thisVal, const Value *args, size_t count) -> Value {
+            int32_t idx = (int32_t)args[0].asNumber();
+            std::vector<uint8_t> pixels;
+            if (!parser_->getFramePixels(idx, pixels)) return Value::null();
+            auto mb = std::make_shared<DicomMutableBuffer>(pixels.size());
+            memcpy(mb->data(), pixels.data(), pixels.size());
+            return rt.global().getPropertyAsFunction(rt, "Uint8Array").callAsConstructor(rt, ArrayBuffer(rt, mb));
+        });
     }
-
-void DicomParserJSI::set(Runtime &runtime, const PropNameID &name, const Value &value) {
-    // No-op
+    return Value::undefined();
 }
 
+void DicomParserJSI::set(Runtime &runtime, const PropNameID &name, const Value &value) {}
 std::vector<PropNameID> DicomParserJSI::getPropertyNames(Runtime &runtime) {
     std::vector<PropNameID> names;
     names.push_back(PropNameID::forAscii(runtime, "getMetaData"));
@@ -100,34 +74,123 @@ std::vector<PropNameID> DicomParserJSI::getPropertyNames(Runtime &runtime) {
     return names;
 }
 
+VolumeJSI::VolumeJSI(std::shared_ptr<VolumeBuffer> volume) : volume_(volume) {}
+VolumeJSI::~VolumeJSI() {}
+
+Value VolumeJSI::get(Runtime &runtime, const PropNameID &name) {
+    auto methodName = name.utf8(runtime);
+    if (methodName == "getOrthoSlice") {
+        return Function::createFromHostFunction(runtime, name, 2, [this](Runtime &rt, const Value &thisVal, const Value *args, size_t count) -> Value {
+            std::string viewStr = args[0].asString(rt).utf8(rt);
+            int idx = (int)args[1].asNumber();
+            GeometryUtils::ViewType vt = GeometryUtils::ViewType::UNKNOWN;
+            if (viewStr == "AXIAL") vt = GeometryUtils::ViewType::AXIAL;
+            else if (viewStr == "CORONAL") vt = GeometryUtils::ViewType::CORONAL;
+            else if (viewStr == "SAGITTAL") vt = GeometryUtils::ViewType::SAGITTAL;
+
+            std::vector<uint8_t> pixels;
+            int outW = 0, outH = 0;
+            if (!GeometryUtils::sampleOrthoView(*volume_, vt, idx, pixels, outW, outH)) return Value::null();
+
+            auto mb = std::make_shared<DicomMutableBuffer>(pixels.size());
+            memcpy(mb->data(), pixels.data(), pixels.size());
+            Object res(rt);
+            res.setProperty(rt, "pixelData", rt.global().getPropertyAsFunction(rt, "Uint8Array").callAsConstructor(rt, ArrayBuffer(rt, mb)));
+            res.setProperty(rt, "width", (double)outW);
+            res.setProperty(rt, "height", (double)outH);
+            return res;
+        });
+    }
+    if (methodName == "getMetadata") {
+        return Function::createFromHostFunction(runtime, name, 0, [this](Runtime &rt, const Value &thisVal, const Value *args, size_t count) -> Value {
+            const DicomMetaData& meta = volume_->getMetadata();
+            Object res(rt);
+            res.setProperty(rt, "width", (double)meta.width);
+            res.setProperty(rt, "height", (double)meta.height);
+            res.setProperty(rt, "sliceCount", (double)volume_->getSliceCount());
+            res.setProperty(rt, "bitsAllocated", (double)meta.bits_allocated);
+            res.setProperty(rt, "pixelRepresentation", (double)meta.pixel_representation);
+
+            Array ps = rt.global().getPropertyAsFunction(rt, "Array").callAsConstructor(rt, 2).asObject(rt).asArray(rt);
+            ps.setValueAtIndex(rt, 0, meta.pixel_spacing_x);
+            ps.setValueAtIndex(rt, 1, meta.pixel_spacing_y);
+            res.setProperty(rt, "pixelSpacing", ps);
+            res.setProperty(rt, "sliceThickness", meta.pixel_spacing_z);
+            return res;
+        });
+    }
+    return Value::undefined();
+}
+
+void VolumeJSI::set(Runtime &runtime, const PropNameID &name, const Value &value) {}
+std::vector<PropNameID> VolumeJSI::getPropertyNames(Runtime &runtime) {
+    std::vector<PropNameID> names;
+    names.push_back(PropNameID::forAscii(runtime, "getOrthoSlice"));
+    names.push_back(PropNameID::forAscii(runtime, "getMetadata"));
+    return names;
+}
+
 } // namespace jsi
 } // namespace facebook
 
 namespace NativeDicomJSI {
-
 void install(facebook::jsi::Runtime &runtime) {
     using namespace facebook::jsi;
-    JSI_LOGI("Installing NativeDicomJSI");
+    auto createParserJSI = Function::createFromHostFunction(runtime, PropNameID::forAscii(runtime, "createParserJSI"), 1, [](Runtime &rt, const Value &thisVal, const Value *args, size_t count) -> Value {
+        if (count < 1 || !args[0].isObject() || !args[0].asObject(rt).isArray(rt)) {
+             throw JSError(rt, "createParserJSI: Expected array of file paths");
+        }
 
-    auto createParserJSI = Function::createFromHostFunction(
-        runtime, PropNameID::forAscii(runtime, "createParserJSI"), 1,
-        [](Runtime &rt, const Value &thisVal, const Value *args, size_t count) -> Value {
-            if (count < 1 || !args[0].isString()) {
-                throw JSError(rt, "createParserJSI: Expected file path as string");
+        Array pathsArray = args[0].asObject(rt).asArray(rt);
+        std::vector<std::string> paths;
+        for (size_t i = 0; i < pathsArray.size(rt); ++i) {
+            Value val = pathsArray.getValueAtIndex(rt, i);
+            if (val.isString()) {
+                paths.push_back(val.asString(rt).utf8(rt));
             }
-            std::string path = args[0].asString(rt).utf8(rt);
-            auto parser = std::make_shared<DicomParser>(path);
-            if (!parser->initialize()) {
-                return Value::null();
+        }
+
+        if (paths.empty()) {
+            return Value::null();
+        }
+
+        auto parser = std::make_shared<DicomParser>(paths);
+        return parser->initialize() ? Object::createFromHostObject(rt, std::make_shared<facebook::jsi::DicomParserJSI>(parser)) : Value::null();
+    });
+
+    auto createVolumeJSI = Function::createFromHostFunction(runtime, PropNameID::forAscii(runtime, "createVolumeJSI"), 1, [](Runtime &rt, const Value &thisVal, const Value *args, size_t count) -> Value {
+        auto paths = args[0].asObject(rt).asArray(rt);
+        auto volume = std::make_shared<VolumeBuffer>();
+        std::string targetSeriesUID = "";
+        struct SliceInfo { std::string path; double sortValue; };
+        std::vector<SliceInfo> sortedSlices;
+
+        for (size_t i = 0; i < paths.size(rt); i++) {
+            std::string path = paths.getValueAtIndex(rt, i).asString(rt).utf8(rt);
+            DicomParser parser(path);
+            if (parser.initialize()) {
+                DicomMetaData meta = parser.getMetaData();
+                if (targetSeriesUID.empty()) { targetSeriesUID = meta.seriesInstanceUID; volume->setMetadata(meta); }
+                if (meta.seriesInstanceUID == targetSeriesUID) {
+                    Plane plane({meta.imagePosition[0], meta.imagePosition[1], meta.imagePosition[2]},
+                                {meta.imageOrientation[0], meta.imageOrientation[1], meta.imageOrientation[2]},
+                                {meta.imageOrientation[3], meta.imageOrientation[4], meta.imageOrientation[5]});
+                    sortedSlices.push_back({path, plane.origin.dot(plane.normal)});
+                }
             }
-            return Object::createFromHostObject(rt, std::make_shared<jsi::DicomParserJSI>(parser));
-        });
+        }
+        std::sort(sortedSlices.begin(), sortedSlices.end(), [](const SliceInfo& a, const SliceInfo& b) { return a.sortValue < b.sortValue; });
+        for (const auto& slice : sortedSlices) {
+            DicomParser p(slice.path);
+            std::vector<uint8_t> pixels;
+            if (p.initialize() && p.getFramePixels(0, pixels)) volume->addFrame(std::move(pixels));
+        }
+        return volume->getSliceCount() > 0 ? Object::createFromHostObject(rt, std::make_shared<facebook::jsi::VolumeJSI>(volume)) : Value::null();
+    });
 
     Object nativeDicomJSI(runtime);
     nativeDicomJSI.setProperty(runtime, "createParserJSI", std::move(createParserJSI));
-
+    nativeDicomJSI.setProperty(runtime, "createVolumeJSI", std::move(createVolumeJSI));
     runtime.global().setProperty(runtime, "NativeDicomJSI", std::move(nativeDicomJSI));
-    JSI_LOGI("NativeDicomJSI installed successfully");
 }
-
-} // namespace NativeDicomJSI
+}

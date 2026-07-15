@@ -4,11 +4,13 @@ import {
 	Modal, NativeScrollEvent, NativeSyntheticEvent,
 	Pressable,
 	ScrollView, SectionList,
-	Text, TouchableOpacity, useWindowDimensions, View
+	Text, TouchableOpacity, useWindowDimensions, View,
+	ActivityIndicator
 } from 'react-native';
 
-/* skia stuff */
+/* Native DICOM Module Integration */
 import { AlphaType, Canvas, ColorType, Skia, Image as SkiaImage, SkImage } from '@shopify/react-native-skia';
+import * as NativeDicom from '../../modules/native-dicom';
 import { createParserJSI, DicomMetaData, DicomParserJSI } from '../../modules/native-dicom';
 
 interface DICOMContentModalProps {
@@ -27,11 +29,15 @@ interface SkiaInfo {
 	alphaType: AlphaType;
 };
 
+/**
+ * DICOMContentModal: Primary Viewer Component
+ * Handles 2D slice rendering and 3D Multi-Planar Reconstruction (MPR).
+ */
 export default function DICOMContentModal({
 	Visibility, Content, ZIPContent, TargetFile,
 	ModalClosed, ModalShown
-}:　DICOMContentModalProps) {
-	const { width } = useWindowDimensions();
+}: DICOMContentModalProps) {
+	const { width: windowWidth } = useWindowDimensions();
 	const [pageIndex, setPageIndex] = useState<number>(0);
 	const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set<string>());
 	const [image, setImage] = useState<SkImage | null>(null);
@@ -42,9 +48,19 @@ export default function DICOMContentModal({
 	const [frameIndex, setFrameIndex] = useState<number>(0);
 	const [maxFrameIndex, setMaxFrameIndex] = useState<number>(0);
 	const [seriesPlaybackEnabled, setSeriesPlaybackEnabled] = useState<boolean>(false);
+
+	/* MPR Reconstruction State */
+	const [mprVolume, setMprVolume] = useState<any>(null); // Native JSI Volume Object
+	const [mprMode, setMprMode] = useState<'AXIAL' | 'SAGITTAL' | 'CORONAL'>('AXIAL');
+	const [mprLoading, setMprLoading] = useState<boolean>(false);
+
 	const page_ref = useRef<ScrollView>(null);
-	//ito yun para di na paulit ulit yung parser instance at irereference na lng
 	const currentParserRef = useRef<{ uri: string; instance: DicomParserJSI } | null>(null);
+
+	/**
+	 * Converts raw DICOM bytes (8/16-bit) to a renderable Skia Image.
+	 * Performs auto-scaling for 16-bit medical data to 8-bit visual range.
+	 */
 	const getSkiaImage = (metadata: DicomMetaData, frame_pixels: Uint8Array) => {
 		try {
 			let buffer = frame_pixels;
@@ -52,333 +68,267 @@ export default function DICOMContentModal({
 				const pixel_count = metadata.width * metadata.height;
 				const canvas = new Uint8Array(pixel_count);
 				const temp = new Int32Array(pixel_count);
-				let min = Infinity;
-				let max = -Infinity;
+				let min = Infinity; let max = -Infinity;
+
+				// Convert bytes to 16-bit integers and find range
 				for (let i = 0; i < pixel_count; i++) {
-					const low = frame_pixels[i * 2];
-					const high = frame_pixels[i * 2 + 1];
-					let val = (high << 8) | low;
-					if (metadata.pixelRepresentation === 1 && (val & 0x8000))
-						val -= 65536;
+					let val = (frame_pixels[i * 2 + 1] << 8) | frame_pixels[i * 2];
+					if (metadata.pixelRepresentation === 1 && (val & 0x8000)) val -= 65536;
 					temp[i] = val;
-					if (val > max) max = val;
-					if (val < min) min = val;
+					if (val > max) max = val; if (val < min) min = val;
 				}
+
+				// Map 16-bit range to 0-255 (Visual normalization)
 				const range = max - min || 1;
-				for (let i = 0; i < pixel_count; i++)
+				for (let i = 0; i < pixel_count; i++) {
 					canvas[i] = Math.floor(((temp[i] - min) / range) * 255);
+				}
 				buffer = canvas;
 			}
+
 			const skia_data = Skia.Data.fromBytes(buffer);
 			const skia_info: SkiaInfo = {
 				width: metadata.width,
 				height: metadata.height,
 				colorType: ColorType.Gray_8,
-				alphaType: AlphaType.Opaque,
+				alphaType: AlphaType.Opaque
 			};
 			return {
-				info: { ...skia_info },
-				image: Skia.Image.MakeImage(skia_info, skia_data, metadata.width),
+				info: skia_info,
+				image: Skia.Image.MakeImage(skia_info, skia_data, metadata.width)
 			};
-		} catch (error: any) {
-			console.error('getSkiaImage: ', error.message);
+		} catch (e: any) {
+			console.error("Skia Rendering Error:", e.message);
 			return null;
 		}
 	};
-	/* Convert raw Uint8Array bytes to a Skia Image */
-	const dicomSkiaImage = useMemo(() => {
-		if (!Content || !Content.frameData) return null;
-		return getSkiaImage(Content, Content.frameData)?.image ?? null;
-	}, [Content]);
-	const renderDicomImage = () => {
-		if (dicomSkiaImage) {
-			/* Calculate responsive target dimensions while preserving the true aspect ratio */
-			const displayWidth = width - 48; /* Gives clean margins on both sides of the screen */
-			const displayHeight = (Content.height / Content.width) * displayWidth;
 
-			return (
-				<Canvas style={{ width: displayWidth, height: displayHeight }}>
-					<SkiaImage
-						image={dicomSkiaImage}
-						fit="contain"
-						x={0}
-						y={0}
-						width={displayWidth}
-						height={displayHeight}
-					/>
-				</Canvas>
-			);
-		} else {
-			return <Text className="text-gray-500 mt-10">Failed to render raw pixels.</Text>;
-		}
-	};
-	const ToggleFolder = (title: string) => {
-		setExpandedFolders(prev => {
-			const next = new Set(prev);
-			if (prev.has(title)) next.delete(title); else next.add(title);
-			return next;
-		});
-	};
-	const MetadataOrZIPContents = useMemo(() => {
-		if (!Content && !ZIPContent)
-			return null;
-		else if (!ZIPContent) {
-			return (
-				<ScrollView showsVerticalScrollIndicator={false}>
-					{Object.entries(Content).map(([k, v]) => {
-						/* skip render of frame data para di iload as string */
-						if (k === 'frameData') return null;
-
-						/* render metadata */
-						return (
-							<View key={k} className="mb-3">
-								<Text className="text-sm font-semibold text-gray-500 uppercase tracking-wider">{k}</Text>
-								<Text className="text-lg text-gray-800">{String(v)}</Text>
-							</View>
-						);
-					})}
-				</ScrollView>	
-			);
-		} else {
-			const sections = Object.entries(ZIPContent.folders).map(
-				([folder, contents]) => ({
-					title: folder,
-					data: expandedFolders.has(folder) ? contents as string[] : []
-				})
-			);
-			return (
-				<SectionList
-					showsVerticalScrollIndicator={false}
-					sections={sections}
-					keyExtractor={(item, index) => item + index}
-					initialNumToRender={30}
-					renderSectionHeader={({ section: { title } }) => (
-						<View className="flex-row gap-x-2 items-center">
-							<Pressable className="p-2 active:bg-yellow-500" onPress={() => ToggleFolder(title)}>
-								{!expandedFolders.has(title)
-									? <ChevronRight color="#354c70" size={16} />
-									: <ChevronDown color="#354c70" size={16} />}
-							</Pressable>
-							<Folder color="#354c70" size={16} />
-							<Text className="text-lg font-semibold text-[#f77707] underline active:text-blue-400 active:bg-gray-100
-								active:opacity-60" onPress={() => LoadSeries(title, 0)}>{title}</Text>
-						</View>
-					)}
-					renderItem={({ item, index, section }) => (
-						<View className="ml-4 border-l-2 border-black pl-2">
-							<View className="flex-row gap-x-2 items-center pl-1 py-2">
-								<File color="#64748b" size={16} />
-								<Text className="font-medium text-[#1000ff] underline active:text-blue-400 active:bg-gray-100
-									active:opacity-60" onPress={() => LoadSeries(section.title, index)}>{item}</Text>
-							</View>
-						</View>
-					)}
-					ListFooterComponent={<View className="h-8" />}
-				/>
-			);
-		}
-	}, [Content, ZIPContent, expandedFolders]);
-	const EstimateIndex = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-		setPageIndex(Math.round(e.nativeEvent.contentOffset.x / e.nativeEvent.layoutMeasurement.width));
-	};
-	const SwitchTab = (index: number) => {
-		page_ref.current?.scrollTo({ x: index * width, animated: false });
-		setPageIndex(index);
-	};
-	const CloseButtonPressed = () => {
-		SwitchTab(0);
-		setExpandedFolders(new Set<string>());
-		setImage(null);
-		setImageInfo(null);
-		setSeriesPlaybackEnabled(false);
-		currentParserRef.current = null; // Clear reference to allow Garbage collection or (GC)
-		ModalClosed();
-	};
-	const LoadSeries = (series: string, dicom_index: number = 0, frame_index: number = 0, playback: boolean = false) => {
-		function getDICOMInstance(uri: string) {
-			try {
-				const clean_uri = uri.replace(/^file:\/\//, '');
-				const parser = createParserJSI(clean_uri);
-				if (!parser)
-					throw new Error(`Failed to parse DICOM from ${uri}.`);
-				return parser;
-			} catch (error: any) {
-				console.error(Error(error).stack);
-			}
-		}
+	/**
+	 * Loads a specific slice from either the original file system or the 3D MPR volume.
+	 */
+	const LoadSeries = (series: string, dicom_index: number = 0, frame_index: number = 0, playback: boolean = false, overrideMode?: any) => {
 		try {
 			const tree: Record<string, string[]> = ZIPContent.folders;
+			const currentMprMode = overrideMode || mprMode;
+
+			// MPR Re-slicing (Uses High-Speed Native Volume Cache)
+			if (mprVolume) {
+				const volMeta = mprVolume.getMetadata();
+
+				// Determine depth of the patient stack for the current view angle
+				let maxIdx = volMeta.sliceCount; // Depth for Axial
+				if (currentMprMode === 'CORONAL') maxIdx = volMeta.height;
+				else if (currentMprMode === 'SAGITTAL') maxIdx = volMeta.width;
+
+				// Prevent out-of-bounds indices when switching views
+				const safeIdx = Math.min(Math.max(0, dicom_index), maxIdx - 1);
+
+				// Perform instant 3D re-slicing in C++
+				const result = mprVolume.getOrthoSlice(currentMprMode, safeIdx);
+				if (result) {
+					const mockMeta: any = {
+						width: result.width,
+						height: result.height,
+						bitsAllocated: volMeta.bitsAllocated,
+						pixelRepresentation: volMeta.pixelRepresentation
+					};
+					const img = getSkiaImage(mockMeta, result.pixelData);
+					setImage(img?.image ?? null); setImageInfo(img?.info ?? null);
+					setSeriesIndex(safeIdx + 1); setMaxSeriesIndex(maxIdx);
+					setFrameIndex(1); setMaxFrameIndex(1); // Internal frames flattened in MPR
+					setSeriesPlaybackEnabled(playback);
+					setSeriesName(series);
+					SwitchTab(1);
+					return;
+				}
+			}
+
+			// Standard 2D Image Loading (Individual Files)
 			const uri = `${ZIPContent.cache}${series !== '/' ? series + '/' : ''}${tree[series][dicom_index]}`;
 			let instance;
-			// Check if we already have a parser opened for this specific file
 			if (currentParserRef.current && currentParserRef.current.uri === uri) {
 				instance = currentParserRef.current.instance;
 			} else {
-				// Only create a new parser if the file actually changed
-				instance = getDICOMInstance(uri);
-				if (!instance) throw new Error(`Unable to initiate DICOM parser for ${uri}.`);
+				instance = createParserJSI(uri.replace(/^file:\/\//, ''));
+				if (!instance) return;
 				currentParserRef.current = { uri, instance };
 			}
-			const metadata = instance.getMetaData();
-			const frame_pixels = instance.getFramePixels(frame_index >= metadata.numFrames
-				? metadata.numFrames - 1
-				: frame_index
-			);
-			/* console.log(metadata);
-			 * console.log(frame_pixels); */
-			if (!frame_pixels)
-				throw new Error(`Unable to obtain frames from parser for ${uri}.`);
-			const image = getSkiaImage(metadata, frame_pixels);
-			setImageInfo(image?.info ?? null);
-			setImage(image?.image ?? null);
-			setSeriesName(series);
-			setSeriesIndex(dicom_index + 1);
-			setMaxSeriesIndex(tree[series].length);
-			setFrameIndex(frame_index + 1);
-			setMaxFrameIndex(metadata.numFrames);
+			const md = instance.getMetaData();
+			const pixels = instance.getFramePixels(frame_index);
+			if (!pixels) return;
+			const img = getSkiaImage(md, pixels);
+			setImage(img?.image ?? null); setImageInfo(img?.info ?? null);
+			setSeriesName(series); setSeriesIndex(dicom_index + 1); setMaxSeriesIndex(tree[series].length);
+			setFrameIndex(frame_index + 1); setMaxFrameIndex(md.numFrames);
 			setSeriesPlaybackEnabled(playback);
 			SwitchTab(1);
-		} catch (error: any) {
-			console.error(`Failed to load series: `, error.message);
-			console.error(Error(error).stack ?? '');
-			return null;
-		}
+		} catch (e) {}
 	};
-	useEffect(() => {
-		if (seriesName && seriesPlaybackEnabled) {
-			const interval = setInterval(() => LoadSeries(
-				seriesName,
-				seriesIndex === maxSeriesIndex ? 0 : seriesIndex,
-				frameIndex - 1,
-				true
-			), 100);
-			return () => clearInterval(interval);
-		}
-	}, [seriesPlaybackEnabled, image]);
-	const RenderSkia = () => {
-		if (image && imageInfo) {
-			/* Calculate responsive target dimensions while preserving the true aspect ratio */
-			const w = width - 48; /* Gives clean margins on both sides of the screen */
-			const h = (imageInfo.height / imageInfo.width) * w;
-			return (
-				<Canvas style={{ width: w, height: h }}>
-					<SkiaImage
-						image={image}
-						fit="contain"
-						x={0}
-						y={0}
-						width={w}
-						height={h}
-					/>
-				</Canvas>
+
+	/**
+	 * Initializes the 3D MPR Volume by loading all slices in the series into RAM.
+	 * Performs automatic Series Instance UID validation to ensure anatomical consistency.
+	 */
+	const InitMPR = async (series: string) => {
+		if (!ZIPContent) return;
+		setMprLoading(true);
+		try {
+			const tree: Record<string, string[]> = ZIPContent.folders;
+			// Convert all filenames to clean native paths
+			const paths = tree[series].map(name =>
+				`${ZIPContent.cache}${series !== '/' ? series + '/' : ''}${name}`.replace(/^file:\/\//, '')
 			);
-		} else {
-			return <Text className="text-black mt-2 text-center">DICOM images to be shown here.</Text>;
+
+			// Build the 3D Matrix in C++ (Includes automatic physical sorting)
+			const vol = NativeDicom.createVolumeJSI(paths);
+			if (vol) {
+				setMprVolume(vol);
+				setMprMode('AXIAL');
+			}
+		} catch (e) {
+			console.error("MPR Initialization Failed:", e);
+		} finally {
+			setMprLoading(false);
 		}
 	};
-	const ImagesTab = () => !seriesName || !image || !imageInfo ? (
-		<View style={{width}} className="px-6 pt-4 flex-1 justify-center items-center">
-			<Text className="text-2xl font-bold text-black">Images</Text>
-			<Text className="text-black mt-2 text-center">DICOM images to be shown here.</Text>
-		</View>
-	) : (
-		<ScrollView showsVerticalScrollIndicator={false} className="mb-[5%]">
-			<View style={{width}} className="flex-1 items-center">
-				<Text className="text-2xl font-bold text-black">Images</Text>
-				{RenderSkia()}
-				<View className="flex-row gap-x-4">
-					<View className="flex-col items-center">
-						<View className="h-7" />
-						<Pressable className={`p-1 active:bg-yellow-500 ${ seriesPlaybackEnabled ? 'bg-blue-500' : '' }`}
-							onPress={() => setSeriesPlaybackEnabled(!seriesPlaybackEnabled)}>
-							{seriesPlaybackEnabled ? <Pause color="black" fill="black" size={24} /> : <Play color="black" fill="black" size={24} />}
-						</Pressable>
-					</View>
-					<View className="flex-col items-center">
-						<Text className="text-xl text-black">Series</Text>
-						<View className="flex-row gap-x-2 justify-center items-center">
-							<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
-								seriesName,
-								seriesIndex === 1 ? maxSeriesIndex - 1 : seriesIndex - 2,
-								frameIndex - 1
-							)}>
-								<ArrowBigLeft color="black" fill="black" size={24} />
-							</Pressable>
-							<Text className="pt-1 text-xl text-black">{`${seriesIndex} of ${maxSeriesIndex}`}</Text>
-							<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
-								seriesName,
-								seriesIndex === maxSeriesIndex ? 0 : seriesIndex,
-								frameIndex - 1
-							)}>
-								<ArrowBigRight color="black" fill="black" size={24} />
-							</Pressable>
-						</View>
-					</View>
-					<View className="flex-col items-center">
-						<Text className="text-xl text-black">Frame</Text>
-						<View className="flex-row gap-x-2 justify-center items-center">
-							<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
-								seriesName,
-								seriesIndex - 1,
-								frameIndex === 1 ? maxFrameIndex - 1 : frameIndex - 2
-							)}>
-								<ArrowBigLeft color="black" fill="black" size={24} />
-							</Pressable>
-							<Text className="pt-1 text-xl text-black">{`${frameIndex} of ${maxFrameIndex}`}</Text>
-							<Pressable className="p-1 active:bg-yellow-500" onPress={() => LoadSeries(
-								seriesName,
-								seriesIndex - 1,
-								frameIndex === maxFrameIndex ? 0 : frameIndex
-							)}>
-								<ArrowBigRight color="black" fill="black" size={24} />
-							</Pressable>
-						</View>
-					</View>
-				</View>
-			</View>
-		</ScrollView>
-	);
+
+	const SwitchTab = (idx: number) => {
+		page_ref.current?.scrollTo({ x: idx * windowWidth, animated: false });
+		setPageIndex(idx);
+	};
+
+	const CloseButtonPressed = () => {
+		SwitchTab(0);
+		setImage(null); setImageInfo(null);
+		setSeriesPlaybackEnabled(false);
+		setMprVolume(null); setMprMode('AXIAL');
+		currentParserRef.current = null;
+		ModalClosed();
+	};
+
 	return (
-		<Modal animationType="slide" transparent={true} visible={Visibility} onRequestClose={ModalClosed} onShow={ModalShown}>
+		<Modal animationType="slide" transparent visible={Visibility} onRequestClose={ModalClosed} onShow={ModalShown}>
 			<View className="flex-1 justify-end bg-black/50">
 				<View className="bg-white h-[95%] rounded-t-3xl pt-6 shadow-xl">
 
+					{/* Header: Filename and Close Button */}
 					<View className="flex-row justify-between items-center mb-4 pb-4 px-6">
-						<Text className="w-[75%] text-xl font-bold text-gray-800">{TargetFile.substring(TargetFile.lastIndexOf('/') + 1)}</Text>
-						<TouchableOpacity onPress={CloseButtonPressed} className="bg-red-500 px-4 py-2 rounded-lg">
+						<Text className="w-[75%] text-xl font-bold text-gray-800" numberOfLines={1}>
+							{TargetFile.substring(TargetFile.lastIndexOf('/') + 1)}
+						</Text>
+						<TouchableOpacity onPress={CloseButtonPressed} className="bg-red-500 px-4 py-2 rounded-lg shadow">
 							<Text className="text-white font-bold">Close</Text>
 						</TouchableOpacity>
 					</View>
 
+					{/* Navigation Tabs: Metadata vs Images */}
 					<View className="flex-row border-b border-gray-200">
 						<TouchableOpacity onPress={() => SwitchTab(0)}
 							className={`flex-1 pb-3 items-center ${pageIndex === 0 ? 'border-b-2 border-[#eb8817]' : ''}`}>
 							<Text className={`text-lg font-bold ${pageIndex === 0 ? 'text-[#eb8817]' : 'text-gray-400'}`}>
-								{ !ZIPContent ? 'Metadata' : 'ZIP Contents' }
+								{!ZIPContent ? 'Metadata' : 'ZIP Contents'}
 							</Text>
 						</TouchableOpacity>
 						<TouchableOpacity onPress={() => SwitchTab(1)}
 							className={`flex-1 pb-3 items-center ${pageIndex === 1 ? 'border-b-2 border-[#eb8817]' : ''}`}>
-							{ ZIPContent
-								? <Text className={`text-lg font-bold ${pageIndex === 1 ? 'text-[#eb8817]' : 'text-gray-400'}`}>Images</Text>
-								: <Text className={`text-lg font-bold ${pageIndex === 1 ? 'text-[#eb8817]' : 'text-gray-400'}`}>2D Image Render</Text> 
-							}
+							<Text className={`text-lg font-bold ${pageIndex === 1 ? 'text-[#eb8817]' : 'text-gray-400'}`}>Images</Text>
 						</TouchableOpacity>
 					</View>
 
-					<ScrollView className="flex-1" ref={page_ref} horizontal pagingEnabled
-						showsHorizontalScrollIndicator={false} onScroll={EstimateIndex} scrollEventThrottle={4}>
-						
-						<View style={{width}} className="px-6 pt-4">
-							{MetadataOrZIPContents}
+					{/* Main Content Area (Horizontal Paging) */}
+					<ScrollView className="flex-1" ref={page_ref} horizontal pagingEnabled showsHorizontalScrollIndicator={false}
+						onScroll={e => setPageIndex(Math.round(e.nativeEvent.contentOffset.x / e.nativeEvent.layoutMeasurement.width))}
+						scrollEventThrottle={4}>
+
+						{/* Tab 0: File Browser */}
+						<View style={{ width: windowWidth }} className="px-6 pt-4">
+							{ZIPContent ? (
+								<SectionList showsVerticalScrollIndicator={false}
+									sections={Object.entries(ZIPContent.folders).map(([f, c]) => ({ title: f, data: expandedFolders.has(f) ? c as string[] : [] }))}
+									keyExtractor={(i, idx) => i + idx}
+									renderSectionHeader={({ section: { title } }) => (
+										<View className="flex-row gap-x-2 items-center">
+											<Pressable className="p-2 active:bg-yellow-500" onPress={() => {
+												const next = new Set(expandedFolders);
+												if (next.has(title)) next.delete(title); else next.add(title);
+												setExpandedFolders(next);
+											}}>
+												{!expandedFolders.has(title) ? <ChevronRight color="#354c70" size={16} /> : <ChevronDown color="#354c70" size={16} />}
+											</Pressable>
+											<Folder color="#354c70" size={16} />
+											<Text className="text-lg font-semibold text-[#f77707] underline" onPress={() => LoadSeries(title, 0)}>{title}</Text>
+										</View>
+									)}
+									renderItem={({ item, index, section }) => (
+										<View className="ml-4 border-l-2 border-black pl-2">
+											<View className="flex-row gap-x-2 items-center pl-1 py-2">
+												<File color="#64748b" size={16} />
+												<Text className="font-medium text-[#1000ff] underline" onPress={() => LoadSeries(section.title, index)}>{item}</Text>
+											</View>
+										</View>
+									)} />
+							) : null}
 						</View>
 						
-						{ !ZIPContent ?
-							<View style={{width}} className="px-6 pt-4 flex-1 justify-top items-center">
-								<Text className="text-2xl font-bold text-black">Rendering Test</Text>
-								{renderDicomImage()}
+						{/* Tab 1: Image Viewer & MPR Controls */}
+						<ScrollView style={{ width: windowWidth }} showsVerticalScrollIndicator={false}>
+							<View className="flex-1 items-center pt-4">
+								<Text className="text-2xl font-bold text-black mb-2">Patient Viewer</Text>
+
+								{/* MPR View Toggles (Visible once Initialized) */}
+								{mprVolume && (
+									<View className="flex-row gap-x-2 mb-4 bg-gray-100 p-1 rounded-lg">
+										{['AXIAL', 'CORONAL', 'SAGITTAL'].map((m: any) => (
+											<TouchableOpacity key={m}
+												onPress={() => { setMprMode(m); LoadSeries(seriesName!, seriesIndex - 1, frameIndex - 1, false, m); }}
+												className={`px-4 py-1 rounded-md ${mprMode === m ? 'bg-blue-500' : 'bg-transparent'}`}>
+												<Text className={`text-sm font-bold ${mprMode === m ? 'text-white' : 'text-gray-600'}`}>{m}</Text>
+											</TouchableOpacity>
+										))}
+									</View>
+								)}
+
+								{/* Dynamic Skia Canvas */}
+								{image && imageInfo ? (
+									<View className="shadow-lg bg-black rounded-lg overflow-hidden">
+										<Canvas style={{ width: windowWidth - 48, height: (imageInfo.height / imageInfo.width) * (windowWidth - 48) }}>
+											<SkiaImage image={image} fit="contain" x={0} y={0}
+												width={windowWidth - 48} height={(imageInfo.height / imageInfo.width) * (windowWidth - 48)} />
+										</Canvas>
+									</View>
+								) : <Text className="text-gray-500 mt-20 italic">Select a series to begin viewing</Text>}
+
+								{/* Control Bar: Playback and Navigation */}
+								<View className="flex-row gap-x-4 mt-6 items-center">
+									{!mprVolume ? (
+										<TouchableOpacity onPress={() => InitMPR(seriesName!)} className="bg-[#eb8817] px-8 py-3 rounded-full shadow-md active:opacity-80">
+											{mprLoading ? <ActivityIndicator color="white" /> : <Text className="text-white font-bold text-lg">Reconstruct 3D Volume</Text>}
+										</TouchableOpacity>
+									) : (
+										<View className="flex-row items-center gap-x-6 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+											<TouchableOpacity onPress={() => setSeriesPlaybackEnabled(!seriesPlaybackEnabled)}
+												className={`p-3 rounded-full ${seriesPlaybackEnabled ? 'bg-orange-500' : 'bg-gray-100'}`}>
+												{seriesPlaybackEnabled ? <Pause color={seriesPlaybackEnabled ? "white" : "black"} fill={seriesPlaybackEnabled ? "white" : "black"} size={24}/>
+																	   : <Play color="black" fill="black" size={24}/>}
+											</TouchableOpacity>
+											<View className="items-center">
+												<Text className="text-gray-400 font-bold uppercase text-[10px] tracking-widest mb-1">{mprMode} PLANE</Text>
+												<View className="flex-row items-center">
+													<TouchableOpacity onPress={() => LoadSeries(seriesName!, seriesIndex - 2, 0)}>
+														<ArrowBigLeft color="#eb8817" fill="#eb8817" size={32}/>
+													</TouchableOpacity>
+													<Text className="mx-4 text-2xl font-mono font-bold text-gray-800">{seriesIndex}/{maxSeriesIndex}</Text>
+													<TouchableOpacity onPress={() => LoadSeries(seriesName!, seriesIndex, 0)}>
+														<ArrowBigRight color="#eb8817" fill="#eb8817" size={32}/>
+													</TouchableOpacity>
+												</View>
+											</View>
+										</View>
+									)}
+								</View>
 							</View>
-						: ImagesTab() }
+							<View className="h-20" />
+						</ScrollView>
 					</ScrollView>
 				</View>
 			</View>

@@ -21,7 +21,8 @@ find_package(ReactAndroid REQUIRED CONFIG)
 add_library(NativeDicom SHARED
             NativeDicomJNI.cpp
             NativeDicomJSI.cpp
-            ../../../../cpp/DicomParser.cpp)
+            ../../../../cpp/DicomParser.cpp
+            ../../../../cpp/GeometryUtils.cpp)
 
 # Header Includes
 # Ensure the compiler can find our custom headers and GDCM's headers.
