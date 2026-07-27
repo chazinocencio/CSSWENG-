@@ -188,6 +188,13 @@ void install(facebook::jsi::Runtime &runtime) {
             }
         }
         std::sort(sortedSlices.begin(), sortedSlices.end(), [](const SliceInfo& a, const SliceInfo& b) { return a.sortValue < b.sortValue; });
+        if (sortedSlices.size() >= 2) {
+            double dist = std::abs(sortedSlices[1].sortValue - sortedSlices[0].sortValue);
+            DicomMetaData meta = volume->getMetadata();
+            if (dist > 0) meta.pixel_spacing_z = dist;
+            volume->setMetadata(meta);
+        }
+
         for (const auto& slice : sortedSlices) {
             DicomParser p(slice.path);
             std::vector<uint8_t> pixels;
