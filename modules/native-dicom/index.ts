@@ -17,6 +17,8 @@ export interface DicomMetaData {
   spacingBetweenSlices: number;
   seriesInstanceUID: string;
   frameOfReferenceUID: string;
+  patientName: string;
+  patientSex: string;
 }
 
 export interface DicomParserJSI {
@@ -38,6 +40,8 @@ export interface VolumeJSI {
     sliceThickness: number;
     bitsAllocated: number;
     pixelRepresentation: number;
+    patientName: string;
+    patientSex: string;
   };
 }
 

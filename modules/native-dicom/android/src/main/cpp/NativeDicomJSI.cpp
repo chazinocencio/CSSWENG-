@@ -36,6 +36,10 @@ Value DicomParserJSI::get(Runtime &runtime, const PropNameID &name) {
             result.setProperty(rt, "bitsStored", (double)meta.bits_stored);
             result.setProperty(rt, "pixelRepresentation", (double)meta.pixel_representation);
             result.setProperty(rt, "photometricInterpretation", String::createFromUtf8(rt, meta.photometricInterpretation));
+            
+            //Patient Data Information
+            result.setProperty(rt, "patientName", String::createFromUtf8(rt, meta.patientName));
+            result.setProperty(rt, "patientSex", String::createFromUtf8(rt, meta.patientSex));
 
             auto putArray = [&](const char* prop, double* vals, int size) {
                 Array arr = rt.global().getPropertyAsFunction(rt, "Array").callAsConstructor(rt, size).asObject(rt).asArray(rt);
@@ -110,6 +114,10 @@ Value VolumeJSI::get(Runtime &runtime, const PropNameID &name) {
             res.setProperty(rt, "sliceCount", (double)volume_->getSliceCount());
             res.setProperty(rt, "bitsAllocated", (double)meta.bits_allocated);
             res.setProperty(rt, "pixelRepresentation", (double)meta.pixel_representation);
+
+            //Patient Data Information
+            res.setProperty(rt, "patientName", String::createFromUtf8(rt, meta.patientName));
+            res.setProperty(rt, "patientSex", String::createFromUtf8(rt, meta.patientSex));
 
             Array ps = rt.global().getPropertyAsFunction(rt, "Array").callAsConstructor(rt, 2).asObject(rt).asArray(rt);
             ps.setValueAtIndex(rt, 0, meta.pixel_spacing_x);

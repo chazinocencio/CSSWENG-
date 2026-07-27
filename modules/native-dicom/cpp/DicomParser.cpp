@@ -65,6 +65,41 @@ bool DicomParser::parseDataset() {
         }
     }
 
+    // extract the patient name using the designated tag (0010, 0010)
+    // removes whhitespaces after the extracted string if it is an odd number of string
+    // so checks backwards
+    gdcm::Tag nameTag(0x0010, 0x0010);
+    if (ds.FindDataElement(nameTag)) {
+        const gdcm::DataElement &de = ds.GetDataElement(nameTag);
+        if (!de.IsEmpty() && de.GetByteValue()) {
+            std::string name(de.GetByteValue()->GetPointer(), de.GetByteValue()->GetLength());
+            std::replace(name.begin(), name.end(), '^', ' ');
+            name.erase(std::find_if(name.rbegin(), name.rend(), [](unsigned char ch) {
+                return !std::isspace(ch) && ch != '\0';
+            }).base(), name.end());
+
+            if (!name.empty()) {
+                meta_data.patientName = name;
+            }
+        }
+    }
+    // extracts the sex of the patient
+    // same logic
+    gdcm::Tag sexTag(0x0010, 0x0040);
+    if (ds.FindDataElement(sexTag)) {
+        const gdcm::DataElement &de = ds.GetDataElement(sexTag);
+        if (!de.IsEmpty() && de.GetByteValue()) {
+            std::string sex(de.GetByteValue()->GetPointer(), de.GetByteValue()->GetLength());
+            sex.erase(std::find_if(sex.rbegin(), sex.rend(), [](unsigned char ch) {
+                return !std::isspace(ch) && ch != '\0';
+            }).base(), sex.end());
+            
+            if (!sex.empty()) {
+                meta_data.patientSex = sex;
+            }
+        }
+    }
+
     // Physical Spacing (Used for 3D sorting and Anisotropy Correction)
     const double* origin = image.GetOrigin();
     if (origin) {

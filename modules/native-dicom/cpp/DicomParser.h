@@ -35,6 +35,10 @@ struct DicomMetaData {
     double pixel_spacing_y = 1.0;
     double pixel_spacing_z = 1.0; // Distance between slices (slice thickness + gap)
     std::string seriesInstanceUID = ""; // Used to group slices into a consistent volume
+
+    //Tags for patient name and sex 
+    std::string patientName = "No Patient Name"; // (0010, 0010)
+    std::string patientSex = "N/A"; // (0010, 0040)
 };
 
 /**
