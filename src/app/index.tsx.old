@@ -1,81 +1,277 @@
-import { useEffect, useState } from "react";
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity } from "react-native";
-import { Link } from "expo-router";
-
-// Custom Module for DICOM Files
-import * as NativeDicom from "native-dicom";
-
+import * as Crypto from 'expo-crypto';
+import * as EFS from 'expo-file-system';
+import { useRef, useState } from "react";
+import { ActivityIndicator, Text, View } from "react-native";
+import { unzip } from 'react-native-zip-archive';
+import { createParserJSI, DicomParserJSI } from "../../modules/native-dicom";
+import DICOMContentModal from "../components/DICOMContentModal";
+import UploadDCMButton from "../components/UploadDCMButton";
 
 export default function Page() {
-	const [testResult, setTestResult] = useState<string>("Testing connection...");
-	const [metaData, setMetaData] = useState<NativeDicom.DicomMetaData | null>(null);
+	const [target, setTarget] = useState<string>("");
+	const [error, setError] = useState<boolean>(false);
+	const [statusText, setStatusText] = useState<string>("");
+	const [DICOMContent, setDICOMContent] = useState<any>(null);
+	const [ZIPContent, setZIPContent] = useState<any>(null);
+	const [isDICOMContentModalVisible, setIsDICOMContentModalVisible] = useState<boolean>(false);
+	const [isLoading, setIsLoading] = useState<boolean>(false);
 
-	useEffect(() => {
+	const [mprMode, setMprMode] = useState<'Axial' | 'Coronal' | 'Sagittal'>('Axial');
+	const [mprSlice, setMprSlice] = useState<number>(0);
+	const parserRef = useRef<DicomParserJSI | null>(null);
+
+	const DICOMContentModalClosed = () => {
+		setError(false);
+		setTarget("");
+		setStatusText("");
+		setDICOMContent(null);
+		setZIPContent(null);
+		setIsDICOMContentModalVisible(false);
+		parserRef.current = null;
+	};
+	const DICOMContentModalShown = () => {
+		setIsLoading(false);
+	};
+	const StatusText = () => {
+		if (statusText.length < 1)
+			return null;
+		const classes = 'text-xl font-light text-' + (error ? 'red' : 'blue') + '-500';
+		return <Text className={classes}>{statusText}</Text>;
+	};
+	const UploadSuccess = async (fileUri: string) => {		
+		setIsLoading(true);
+		/* Since originally di async tong function na to,
+		 * suspend for a very short moment para magrender ung loading spinner
+		 * (pauses for 50 ms) */
+		await new Promise(res => setTimeout(res, 50));
+		console.log("EXACT FILE URI:", fileUri);
 		try {
-            // const instanceId = NativeDicom.createParser("/data/user/0/com.anonymous.mobiledicomviewer/files/test/sample.dcm");
-            const instanceId = NativeDicom.createParser("sample.dcm");
+			if (fileUri == null || fileUri.length < 1)
+				throw new Error('Invalid DICOM file');
+			const cleanPath = fileUri.replace(/^file:\/\//, '');
+			const parser = createParserJSI(cleanPath);
+			if (!parser)
+				throw new Error('Failed to create a JSI parser instance.');
 
+			parserRef.current = parser;
 
-			if (instanceId) {
-				const meta = NativeDicom.getMetaData(instanceId);
-				setMetaData(meta);
-				setTestResult("Native Bridge Connected!");
+			const dicom_md = parser.getMetaData();
+			if (!dicom_md)
+				throw new Error('Failed to obtain metadata from DICOM');
+			
+			/* 0 dahil 2D image for now syempre iibahin kapag multiframe na */
+			const frameData = parser.getFramePixels(0);
 
-				NativeDicom.releaseParser(instanceId);
-			} else {
-				setTestResult("Failed to create parser instance.");
+			/* inexpand ko na lng yung content para di na magiba yung component */
+			const contentWithImage = {
+				/* para width, height, frameData ang ibigay */
+				...dicom_md,
+				frameData
 			}
-		} catch (error) {
-			setTestResult(`Error: ${error instanceof Error ? error.message : String(error)}`);
+			console.log('JSI processing success');
+			setError(false);
+			setTarget(fileUri);
+			setDICOMContent(contentWithImage);
+			setZIPContent(null);
+			setMprMode('Axial');
+			setMprSlice(0);
+			setStatusText(`Upload success. (${dicom_md.width}x${dicom_md.height}, ${dicom_md.numFrames} frames)`);
+			setIsDICOMContentModalVisible(true);
+		} catch (error: any) {
+			console.log('An error has been encountered.');
+			console.log(error.message);
+			setError(true);
+			setStatusText(error.message);
 		}
-	}, []);
+    };
+	const handleMprChange = (mode: 'Axial' | 'Coronal' | 'Sagittal', index: number) => {
+		const parser = parserRef.current;
 
+		if (!parser) {
+			// If we are in ZIP mode, we let DICOMContentModal handle it internally
+			// for now, or just ignore if it's the global parser.
+			setMprMode(mode);
+			setMprSlice(index);
+			return;
+		}
+
+		const slice = parser.getMPRSlice(mode, index);
+		if (slice && slice.frameData) {
+			setDICOMContent((prev: any) => {
+				if (!prev) return null;
+				return {
+					...prev,
+					width: slice.width,
+					height: slice.height,
+					frameData: slice.frameData
+				};
+			});
+			setMprMode(mode);
+			setMprSlice(index);
+		} else {
+			console.error(`MPR slice returned null or empty for ${mode} at index ${index}`);
+		}
+	};
+	const UploadSuccessZIP = async (fileUri: string) => {
+		setIsLoading(true);
+		const instant = () => new Promise(res => setTimeout(res, 5));
+		let file_or_folder_per_30 = 0;
+		try {
+			const uuid = Crypto.randomUUID();
+			const cpwd = new EFS.Directory(EFS.Paths.cache, uuid);
+			cpwd.create();
+			if (!cpwd.exists || !cpwd.info().creationTime)
+				throw new Error('Unable to create cache directory.');
+			await unzip(fileUri, cpwd.uri, 'UTF-8');
+			const dirs = [...cpwd.list()];
+			const dicom_uris: Record<string, string[]> = {};
+			/* Check ang mga directories for DICOM files */
+			for (const i of dirs) {
+				if (i instanceof EFS.Directory) {
+					let has_dicom = false;
+					let iuri = i.info().uri;
+					if (!iuri) {
+						i.delete();
+						continue;
+					} else {
+						iuri = iuri.substring(0, iuri.length - 1);
+					}
+					const iname = iuri.substring(iuri.lastIndexOf('/') + 1);
+					const il = [...i.list()];
+					for (const j of il) {
+						const juri = j.info().uri;
+						if (!(j instanceof EFS.File) || !juri) {
+							j.delete();
+							continue;
+						}
+						const jext = juri.substring(juri.lastIndexOf('.') + 1);
+						const is_dicom = jext.toLowerCase() === 'dcm';
+						has_dicom = has_dicom || is_dicom;
+						if (!is_dicom) {
+							j.delete();
+							continue;
+						} else {
+							const jname = juri.substring(juri.lastIndexOf('/') + 1);
+							if (!dicom_uris[iname])
+								dicom_uris[iname] = [];
+							dicom_uris[iname].push(jname);
+						}
+						if (++file_or_folder_per_30 > 30) {
+							file_or_folder_per_30 = 1;
+							await instant();
+						}
+					}
+					if (!has_dicom) {
+						i.delete();
+					}
+					else {
+						dicom_uris[iname].sort((a, b) => a.localeCompare(
+							b, undefined, { numeric: true, sensitivity: 'base' }
+						));
+					}
+					if (++file_or_folder_per_30 > 30) {
+						file_or_folder_per_30 = 1;
+						await instant();
+					}
+				}
+			}
+			/* Walang nahanap na DICOM sa mga directories
+			 * Last check kung sa root merong mga DICOM files */
+			if (Object.keys(dicom_uris).length < 1) {
+				let has_root_dicom = false;
+				for (const i of dirs) {
+					if (i instanceof EFS.File) {
+						const uri = i.info().uri;
+						if (!uri) {
+							i.delete();
+							continue;
+						}
+						const ext = uri.substring(uri.lastIndexOf('.') + 1);
+						const is_dicom = ext.toLowerCase() === 'dcm';
+						has_root_dicom = has_root_dicom || is_dicom;
+						if (is_dicom) {
+							const name = uri.substring(uri.lastIndexOf('/') + 1);
+							if (!dicom_uris['/'])
+								dicom_uris['/'] = [];
+							dicom_uris['/'].push(name);
+						} else {
+							i.delete();
+							continue;
+						}
+					}
+				}
+				if (!has_root_dicom) {
+					throw new Error('Invalid DICOM ZIP file.');
+				} else {
+					dicom_uris['/'].sort((a, b) => a.localeCompare(
+						b, undefined, { numeric: true, sensitivity: 'base' }
+					));
+				}
+			}
+			const zip = {
+				source: fileUri,
+				cache: cpwd.uri,
+				created: cpwd.info().creationTime,
+				folders: { ...dicom_uris },
+			};
+			setError(false);
+			setTarget(fileUri);
+			setDICOMContent(null);
+			setZIPContent(zip);
+			setStatusText('Upload success.');
+			setIsDICOMContentModalVisible(true);
+		} catch (error: any) {
+			console.error('An error has been encountered during ZIP reading.');
+			console.error(error.message);
+			setError(true);
+			setStatusText(error.message);
+			setIsLoading(false);
+		}
+	}
+	const UploadInvalid = () => {
+		setError(true);
+		setStatusText('Invalid DICOM file.');
+	};
+	const UploadCancelled = () => {
+		setError(true);
+		setStatusText('Upload cancelled.');
+	};
+	const UploadButton = () => {
+		return !isLoading ? (
+			<View className="mr-6 items-center">
+				<StatusText />
+				<UploadDCMButton
+					ButtonClass="w-[100px] h-[40px] bg-[#eb8817] justify-center items-center rounded-lg"
+					TextClass="text-xl text-white font-light"
+					ButtonText="Upload"
+					UploadSuccess={UploadSuccess}
+					UploadSuccessZIP={UploadSuccessZIP}
+					UploadInvalid={UploadInvalid}
+					UploadCancelled={UploadCancelled}
+				/>
+			</View>
+		) : (
+			<View className="mr-6 flex-col items-center">
+				<ActivityIndicator color="orange" size={40} />
+				<Text className="text-xl font-light">Please wait...</Text>
+			</View>
+		);
+	};
 	return (
-		<View className="flex-1 bg-white p-8">
-			<View className="mt-12 items-center">
-				<Text className="text-3xl font-bold text-blue-600">NativeDicom Test</Text>
-				<Text className="text-lg mt-2 font-medium">{testResult}</Text>
+		<View className="m-4 h-full flex-1 justify-center">
+			<View className="ml-2 mr-2 mb-5 items-center justify-center">
+				<Text className="text-2xl font-bold">Welcome to DICOM Viewer.</Text>
+				<Text className="text-xl font-light text-center">Upload a DICOM file or a ZIP file to
+					read by clicking the Upload button below.</Text>
 			</View>
-
-			{metaData && (
-				<View className="mt-8 p-4 bg-gray-100 rounded-xl border border-gray-200">
-					<Text className="text-xl font-bold mb-4 text-gray-800">Dummy MetaData (from C++):</Text>
-
-					<View className="space-y-2">
-						<DataRow label="Width" value={metaData.width} />
-						<DataRow label="Height" value={metaData.height} />
-						<DataRow label="Frames" value={metaData.numFrames} />
-						<DataRow label="Bits Allocated" value={metaData.bitsAllocated} />
-						<DataRow label="Bits Stored" value={metaData.bitsStored} />
-						<DataRow label="Interpretation" value={metaData.photometricInterpretation} />
-					</View>
-				</View>
-			)}
-
-            {/*Moves to page to test parsing sample.dcm*/}
-			<View className="mt-8 p-4 bg-blue-50 rounded-xl border border-blue-200">
-				<Link href="/asset-test" asChild>
-					<TouchableOpacity className="items-center py-2">
-						<Text className="text-blue-600 font-bold text-lg">Go to Parsing Test</Text>
-						<Text className="text-blue-400 text-sm text-center">Tests GDCM parsing of sample.dcm</Text>
-					</TouchableOpacity>
-				</Link>
-			</View>
-
-			<View className="flex-1 justify-end mb-8">
-				<Text className="text-center text-gray-400 text-sm">
-					If you see data above, the C++ bridge is successfully communicating with TypeScript.
-				</Text>
-			</View>
-		</View>
-	);
-}
-
-function DataRow({ label, value }: { label: string; value: string | number }) {
-	return (
-		<View className="flex-row justify-between py-1 border-b border-gray-200">
-			<Text className="font-semibold text-gray-600">{label}:</Text>
-			<Text className="text-gray-900">{value}</Text>
+			<UploadButton />
+			<DICOMContentModal Content={DICOMContent} ZIPContent={ZIPContent} TargetFile={target}
+				Visibility={isDICOMContentModalVisible} ModalClosed={DICOMContentModalClosed}
+				ModalShown={DICOMContentModalShown}
+				mprParser={parserRef.current}
+				onMprChange={handleMprChange}
+				currentViewMode={mprMode}
+				currentSliceIndex={mprSlice} />
 		</View>
 	);
 }

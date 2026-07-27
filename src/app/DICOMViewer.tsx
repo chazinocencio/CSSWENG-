@@ -3,8 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AlphaType, Canvas, ColorType, Skia, Image as SkiaImage, SkImage, FilterMode, MipmapMode, Line } from '@shopify/react-native-skia';
-import { DicomMetaData, VolumeJSI, createVolumeJSI } from '../../modules/native-dicom';
+import { AlphaType, Canvas, ColorType, Line, Skia, Image as SkiaImage, SkImage } from '@shopify/react-native-skia';
+import { createVolumeJSI, DicomMetaData, VolumeJSI } from '../../modules/native-dicom';
 
 interface DICOMViewerProps {
     Content: any;
