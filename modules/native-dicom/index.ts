@@ -43,6 +43,12 @@ export interface VolumeJSI {
     patientName: string;
     patientSex: string;
   };
+  getScoutLine(
+    scoutViewType: 'AXIAL' | 'CORONAL' | 'SAGITTAL',
+    scoutIndex: number,
+    targetViewType: 'AXIAL' | 'CORONAL' | 'SAGITTAL',
+    targetIndex: number
+  ): { p1: { x: number, y: number }, p2: { x: number, y: number } } | null;
 }
 
 declare global {

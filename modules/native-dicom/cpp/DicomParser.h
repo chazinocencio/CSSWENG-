@@ -27,6 +27,7 @@ struct DicomMetaData {
     int32_t bits_stored = 0;
     int32_t pixel_representation = 0; // 0=Unsigned, 1=Signed
     std::string photometricInterpretation = ""; // e.g., MONOCHROME2, RGB
+    int32_t instanceNumber = 0; // (0020, 0013) Acquisition order
 
     // Spatial metadata for anatomical alignment
     double imagePosition[3] = {0.0, 0.0, 0.0};    // (0020,0032) x, y, z
@@ -35,6 +36,10 @@ struct DicomMetaData {
     double pixel_spacing_y = 1.0;
     double pixel_spacing_z = 1.0; // Distance between slices (slice thickness + gap)
     std::string seriesInstanceUID = ""; // Used to group slices into a consistent volume
+
+    // Windowing Defaults (0028, 1050) and (0028, 1051)
+    double windowCenter = 50.0;
+    double windowWidth = 400.0;
 
     //Tags for patient name and sex 
     std::string patientName = "No Patient Name"; // (0010, 0010)

@@ -115,6 +115,9 @@ Value VolumeJSI::get(Runtime &runtime, const PropNameID &name) {
             res.setProperty(rt, "bitsAllocated", (double)meta.bits_allocated);
             res.setProperty(rt, "pixelRepresentation", (double)meta.pixel_representation);
 
+            res.setProperty(rt, "windowWidth", (double)meta.windowWidth);
+            res.setProperty(rt, "windowCenter", (double)meta.windowCenter);
+
             //Patient Data Information
             res.setProperty(rt, "patientName", String::createFromUtf8(rt, meta.patientName));
             res.setProperty(rt, "patientSex", String::createFromUtf8(rt, meta.patientSex));
@@ -127,6 +130,33 @@ Value VolumeJSI::get(Runtime &runtime, const PropNameID &name) {
             return res;
         });
     }
+    if (methodName == "getScoutLine") {
+        return Function::createFromHostFunction(runtime, name, 4, [this](Runtime &rt, const Value &thisVal, const Value *args, size_t count) -> Value {
+            auto viewToEnum = [&](std::string s) {
+                if (s == "AXIAL") return GeometryUtils::ViewType::AXIAL;
+                if (s == "CORONAL") return GeometryUtils::ViewType::CORONAL;
+                if (s == "SAGITTAL") return GeometryUtils::ViewType::SAGITTAL;
+                return GeometryUtils::ViewType::UNKNOWN;
+            };
+
+            GeometryUtils::ViewType scoutView = viewToEnum(args[0].asString(rt).utf8(rt));
+            int scoutIdx = (int)args[1].asNumber();
+            GeometryUtils::ViewType targetView = viewToEnum(args[2].asString(rt).utf8(rt));
+            int targetIdx = (int)args[3].asNumber();
+
+            Point2D p1, p2;
+            if (!GeometryUtils::getScoutLine(*volume_, scoutView, scoutIdx, targetView, targetIdx, p1, p2)) {
+                return Value::null();
+            }
+
+            Object res(rt);
+            Object pt1(rt); pt1.setProperty(rt, "x", p1.x); pt1.setProperty(rt, "y", p1.y);
+            Object pt2(rt); pt2.setProperty(rt, "x", p2.x); pt2.setProperty(rt, "y", p2.y);
+            res.setProperty(rt, "p1", pt1);
+            res.setProperty(rt, "p2", pt2);
+            return res;
+        });
+    }
     return Value::undefined();
 }
 
@@ -135,6 +165,7 @@ std::vector<PropNameID> VolumeJSI::getPropertyNames(Runtime &runtime) {
     std::vector<PropNameID> names;
     names.push_back(PropNameID::forAscii(runtime, "getOrthoSlice"));
     names.push_back(PropNameID::forAscii(runtime, "getMetadata"));
+    names.push_back(PropNameID::forAscii(runtime, "getScoutLine"));
     return names;
 }
 
@@ -170,7 +201,7 @@ void install(facebook::jsi::Runtime &runtime) {
         auto paths = args[0].asObject(rt).asArray(rt);
         auto volume = std::make_shared<VolumeBuffer>();
         std::string targetSeriesUID = "";
-        struct SliceInfo { std::string path; double sortValue; };
+        struct SliceInfo { std::string path; double sortValue; int instanceNum; };
         std::vector<SliceInfo> sortedSlices;
 
         for (size_t i = 0; i < paths.size(rt); i++) {
@@ -183,11 +214,34 @@ void install(facebook::jsi::Runtime &runtime) {
                     Plane plane({meta.imagePosition[0], meta.imagePosition[1], meta.imagePosition[2]},
                                 {meta.imageOrientation[0], meta.imageOrientation[1], meta.imageOrientation[2]},
                                 {meta.imageOrientation[3], meta.imageOrientation[4], meta.imageOrientation[5]});
-                    sortedSlices.push_back({path, plane.origin.dot(plane.normal)});
+                    sortedSlices.push_back({path, plane.origin.dot(plane.normal), meta.instanceNumber});
                 }
             }
         }
-        std::sort(sortedSlices.begin(), sortedSlices.end(), [](const SliceInfo& a, const SliceInfo& b) { return a.sortValue < b.sortValue; });
+
+        // Sort by Instance Number (Acquisition Order) to match standard web viewers
+        std::sort(sortedSlices.begin(), sortedSlices.end(), [](const SliceInfo& a, const SliceInfo& b) {
+            return a.instanceNum < b.instanceNum;
+        });
+
+        // If instance numbers are missing or identical (0), fallback to physical sorting
+        bool hasValidInstances = false;
+        for(const auto& s : sortedSlices) if(s.instanceNum > 0) { hasValidInstances = true; break; }
+
+        if (!hasValidInstances) {
+            std::sort(sortedSlices.begin(), sortedSlices.end(), [](const SliceInfo& a, const SliceInfo& b) {
+                return a.sortValue > b.sortValue; // Descending for Head-to-Toe
+            });
+        }
+
+
+        if (!sortedSlices.empty()) {
+            DicomParser firstParser(sortedSlices[0].path);
+            if (firstParser.initialize()) {
+                volume->setMetadata(firstParser.getMetaData());
+            }
+        }
+
         if (sortedSlices.size() >= 2) {
             double dist = std::abs(sortedSlices[1].sortValue - sortedSlices[0].sortValue);
             DicomMetaData meta = volume->getMetadata();

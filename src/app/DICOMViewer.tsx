@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { AlphaType, Canvas, ColorType, Skia, Image as SkiaImage, SkImage, FilterMode, MipmapMode } from '@shopify/react-native-skia';
+import { AlphaType, Canvas, ColorType, Skia, Image as SkiaImage, SkImage, FilterMode, MipmapMode, Line } from '@shopify/react-native-skia';
 import { DicomMetaData, VolumeJSI, createVolumeJSI } from '../../modules/native-dicom';
 
 interface DICOMViewerProps {
@@ -37,6 +37,15 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
     const [maxSeriesIndex, setMaxSeriesIndex] = useState<number>(0);
     const [frameIndex, setFrameIndex] = useState<number>(0);
     const [seriesPlaybackEnabled, setSeriesPlaybackEnabled] = useState<boolean>(false);
+    const [isLoadingSeries, setIsLoadingSeries] = useState<boolean>(false);
+
+    // Standard "Abdominal/Soft Tissue" window for seeing internal organs clearly
+    const [windowWidth, setWindowWidth] = useState(400);
+    const [windowCenter, setWindowCenter] = useState(50);
+
+    // Scout Rendering States
+    const [scoutImage, setScoutImage] = useState<SkImage | null>(null);
+    const [scoutLine, setScoutLine] = useState<{ p1: { x: number, y: number }, p2: { x: number, y: number } } | null>(null);
 
     const currentVolumeRef = useRef<{ uri: string; instance: VolumeJSI; mode: 'AXIAL' | 'SAGITTAL' | 'CORONAL' } | null>(null);
 
@@ -58,8 +67,18 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
              }
 
              const range = max - min || 1;
+
+             /*
+              * WINDOW / LEVEL MAPPING LOGIC
+              */
+             const low = windowCenter - windowWidth / 2;
+             const high = windowCenter + windowWidth / 2;
+
              for (let i = 0; i < pixel_count; i++) {
-                canvas[i] = Math.floor(((temp[i] - min) / range) * 255);
+                const pixel = temp[i];
+                // Contrast Mapping to 0-255 range
+                const val = Math.max(0, Math.min(255, ((pixel - low) / (high - low)) * 255));
+                canvas[i] = Math.floor(val);
              }
              buffer = canvas;
           }
@@ -77,19 +96,27 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
     }, [Content]);
 
     const LoadSeries = (series: string, dicom_index: number = 0, frame_index: number = 0, playback: boolean = false) => {
-       if (!ZIPContent) return;
+       if (!ZIPContent || isLoadingSeries) return;
        try {
           const tree: Record<string, string[]> = ZIPContent.folders;
           const uri = `${ZIPContent.cache}${series !== '/' ? series + '/' : ''}`;
+
           let instance;
+          // IMPORTANT: Check if the series has actually changed. If uri is different, we MUST re-create the volume.
           if (currentVolumeRef.current && currentVolumeRef.current.uri === uri) {
              instance = currentVolumeRef.current.instance;
           } else {
+             setIsLoadingSeries(true);
              const paths = tree[series].map(name => `${uri}${name}`.replace(/^file:\/\//, ''));
              instance = createVolumeJSI(paths);
-             if (!instance) throw new Error(`Unable to initiate MPR`);
+             if (!instance) {
+                setIsLoadingSeries(false);
+                throw new Error(`Unable to initiate MPR for series: ${series}`);
+             }
              currentVolumeRef.current = { uri, instance, mode: 'AXIAL' };
+             setIsLoadingSeries(false);
           }
+
           const vmd = instance.getMetadata();
           const mode = currentVolumeRef.current.mode;
           let max_index = vmd.sliceCount;
@@ -110,6 +137,38 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
           setMaxSeriesIndex(max_index);
           setFrameIndex(1);
           setSeriesPlaybackEnabled(playback);
+
+          // Use default windowing from series metadata if available
+          // ONLY set this if we are loading a NEW series to prevent resetting user adjustments
+          if (vmd.windowWidth && vmd.windowCenter && currentVolumeRef.current?.uri !== uri) {
+             setWindowWidth(vmd.windowWidth);
+             setWindowCenter(vmd.windowCenter);
+          }
+
+          // Update Scout View
+          if (instance.getScoutLine) {
+             const scoutMode = mode === 'SAGITTAL' ? 'AXIAL' : 'SAGITTAL';
+
+             // Use middle slice as scout reference to show centered anatomy
+             let scoutMaxIndex = vmd.sliceCount;
+             if (scoutMode === 'CORONAL') scoutMaxIndex = vmd.height;
+             if (scoutMode === 'SAGITTAL') scoutMaxIndex = vmd.width;
+             const scoutIdx = Math.floor(scoutMaxIndex / 2);
+
+             const scoutResult = instance.getOrthoSlice(scoutMode, scoutIdx);
+             if (scoutResult) {
+                const sImg = getSkiaImage({
+                   width: scoutResult.width,
+                   height: scoutResult.height,
+                   bitsAllocated: vmd.bitsAllocated,
+                   pixelRepresentation: vmd.pixelRepresentation
+                } as any, scoutResult.pixelData);
+                setScoutImage(sImg?.image ?? null);
+
+                const line = instance.getScoutLine(scoutMode, scoutIdx, mode, index);
+                setScoutLine(line);
+             }
+          }
        } catch (error: any) {
           console.error(`Failed to load series: `, error.message);
        }
@@ -133,6 +192,11 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
           return () => clearInterval(interval);
        }
     }, [seriesPlaybackEnabled, image]);
+
+    // Re-render when Window/Level changes
+    useEffect(() => {
+       if (seriesName) LoadSeries(seriesName, seriesIndex - 1, frameIndex - 1, false);
+    }, [windowWidth, windowCenter]);
 
     const RenderSkia = () => {
        const targetImage = image;
@@ -163,6 +227,69 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
                 className="absolute left-0 top-0 bottom-0 w-[220px] bg-black/90 p-4 z-50 shadow-2xl"
              >
                 <Text className="text-white font-bold text-lg mb-4">Settings</Text>
+
+                <View className="mb-6">
+                   <Text className="text-gray-400 mb-2 text-xs uppercase font-bold">Contrast & Brightness</Text>
+
+                   <View className="mb-4">
+                      <View className="flex-row justify-between mb-1">
+                        <Text className="text-white text-[10px]">WIDTH: {Math.round(windowWidth)}</Text>
+                      </View>
+                      <View className="flex-row items-center">
+                         <TouchableOpacity onPress={() => setWindowWidth(prev => Math.max(1, prev - 50))} className="bg-gray-700 p-1 rounded-l-md px-2 border-r border-gray-600"><Text className="text-white font-bold">-</Text></TouchableOpacity>
+                         <View className="flex-1 bg-gray-800 h-8 justify-center px-2">
+                            <View className="bg-gray-600 h-1 rounded-full relative">
+                                <View
+                                    style={{ left: `${Math.min(100, (windowWidth / 2000) * 100)}%` }}
+                                    className="absolute -top-1.5 w-3 h-3 bg-blue-500 rounded-full border-2 border-white"
+                                />
+                            </View>
+                         </View>
+                         <TouchableOpacity onPress={() => setWindowWidth(prev => Math.min(4000, prev + 50))} className="bg-gray-700 p-1 rounded-r-md px-2 border-l border-gray-600"><Text className="text-white font-bold">+</Text></TouchableOpacity>
+                      </View>
+                   </View>
+
+                   <View className="mb-4">
+                      <View className="flex-row justify-between mb-1">
+                        <Text className="text-white text-[10px]">LEVEL: {Math.round(windowCenter)}</Text>
+                      </View>
+                      <View className="flex-row items-center">
+                         <TouchableOpacity onPress={() => setWindowCenter(prev => prev - 20)} className="bg-gray-700 p-1 rounded-l-md px-2 border-r border-gray-600"><Text className="text-white font-bold">-</Text></TouchableOpacity>
+                         <View className="flex-1 bg-gray-800 h-8 justify-center px-2">
+                            <View className="bg-gray-600 h-1 rounded-full relative">
+                                <View
+                                    style={{ left: `${Math.min(100, Math.max(0, ((windowCenter + 1000) / 2000) * 100))}%` }}
+                                    className="absolute -top-1.5 w-3 h-3 bg-orange-500 rounded-full border-2 border-white"
+                                />
+                            </View>
+                         </View>
+                         <TouchableOpacity onPress={() => setWindowCenter(prev => prev + 20)} className="bg-gray-700 p-1 rounded-r-md px-2 border-l border-gray-600"><Text className="text-white font-bold">+</Text></TouchableOpacity>
+                      </View>
+                   </View>
+
+                   <View className="flex-row flex-wrap gap-2">
+                      <TouchableOpacity
+                         onPress={() => { setWindowWidth(4000); setWindowCenter(500); }}
+                         className="bg-blue-600/30 px-2 py-1 rounded-md border border-blue-500/50"
+                      >
+                         <Text className="text-blue-400 text-[9px] font-bold">ORGANS</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                         onPress={() => { setWindowWidth(1500); setWindowCenter(450); }}
+                         className="bg-orange-600/30 px-2 py-1 rounded-md border border-orange-500/50"
+                      >
+                         <Text className="text-orange-400 text-[9px] font-bold">BONE</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                         onPress={() => { setWindowWidth(1500); setWindowCenter(-600); }}
+                         className="bg-green-600/30 px-2 py-1 rounded-md border border-green-500/50"
+                      >
+                         <Text className="text-green-400 text-[9px] font-bold">LUNGS</Text>
+                      </TouchableOpacity>
+                   </View>
+                </View>
 
                 {/* Series Selection */}
                 {ZIPContent && (
@@ -229,12 +356,36 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
              </TouchableOpacity>
 
              {/* Scout Image Overlay */}
-             {scoutOpen && (
+             {scoutOpen && scoutImage && (
                 <View
-                    style={{ top: insets.top + 60 }}
-                    className="absolute right-4 w-32 h-32 bg-gray-900 border-2 border-orange-500 rounded-lg justify-center items-center z-20 shadow-lg"
+                    style={{
+                        top: insets.top + 60,
+                        width: 140,
+                        aspectRatio: scoutImage.width() / scoutImage.height()
+                    }}
+                    className="absolute right-4 bg-black border-2 border-orange-500 rounded-lg overflow-hidden z-20 shadow-lg"
                 >
-                   <Text className="text-gray-500 text-xs">Scout Image</Text>
+                   <Canvas style={{ width: '100%', height: '100%' }}>
+                      <SkiaImage
+                        image={scoutImage}
+                        fit="fill"
+                        x={0} y={0} width={140} height={140 / (scoutImage.width() / scoutImage.height())}
+                      />
+                      {scoutLine && (
+                        <Line
+                            p1={{
+                                x: (scoutLine.p1.x / scoutImage.width()) * 140,
+                                y: (scoutLine.p1.y / scoutImage.height()) * (140 / (scoutImage.width() / scoutImage.height()))
+                            }}
+                            p2={{
+                                x: (scoutLine.p2.x / scoutImage.width()) * 140,
+                                y: (scoutLine.p2.y / scoutImage.height()) * (140 / (scoutImage.width() / scoutImage.height()))
+                            }}
+                            color="orange"
+                            strokeWidth={2}
+                        />
+                      )}
+                   </Canvas>
                 </View>
              )}
 

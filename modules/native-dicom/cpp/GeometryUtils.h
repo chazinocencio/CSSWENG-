@@ -54,6 +54,24 @@ public:
         int& outW,
         int& outH
     );
+
+    /**
+     * Calculates a 2D line in the pixel space of a Scout view that represents
+     * the intersection with a Target slice.
+     */
+    static bool getScoutLine(
+        const VolumeBuffer& volume,
+        ViewType scoutView,
+        int scoutIndex,
+        ViewType targetView,
+        int targetIndex,
+        Point2D& p1, Point2D& p2
+    );
+
+    /**
+     * Derives the 3D plane definition for any orthogonal slice.
+     */
+    static Plane getPlaneForView(const VolumeBuffer& volume, ViewType view, int index);
 };
 
 #endif

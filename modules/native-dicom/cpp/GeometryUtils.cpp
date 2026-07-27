@@ -76,10 +76,10 @@ bool GeometryUtils::sampleOrthoView(
 
         for (int y = 0; y < outH; ++y) {
             // Flip Y for medical orientation: top of screen (y=0) maps to max physical Z (head)
-            double mappedZ = (double)(outH - 1 - y) * spaceY / spaceZ;
-            int z0 = std::clamp(static_cast<int>(mappedZ), 0, S - 1);
+            double mappedZ = (double)y * (physicalDepth / outH) / spaceZ;
+            int z0 = std::clamp(static_cast<int>(std::floor(mappedZ)), 0, S - 1);
             int z1 = std::clamp(z0 + 1, 0, S - 1);
-            double zWeight = mappedZ - z0; // Linear interpolation weight
+            double zWeight = mappedZ - std::floor(mappedZ);
 
             const uint8_t *s0 = volume.getSlice(z0), *s1 = volume.getSlice(z1);
 
@@ -115,10 +115,10 @@ bool GeometryUtils::sampleOrthoView(
 
         for (int y = 0; y < outH; ++y) {
             // Head-at-top orientation flip
-            double mappedZ = (double)(outH - 1 - y) * spaceX / spaceZ;
-            int z0 = std::clamp(static_cast<int>(mappedZ), 0, S - 1);
+            double mappedZ = (double)y * (physicalDepth / outH) / spaceZ;
+            int z0 = std::clamp(static_cast<int>(std::floor(mappedZ)), 0, S - 1);
             int z1 = std::clamp(z0 + 1, 0, S - 1);
-            double zWeight = mappedZ - z0;
+            double zWeight = mappedZ - std::floor(mappedZ);
 
             const uint8_t *s0 = volume.getSlice(z0), *s1 = volume.getSlice(z1);
 
@@ -145,4 +145,73 @@ bool GeometryUtils::sampleOrthoView(
         return true;
     }
     return false;
+}
+
+Plane GeometryUtils::getPlaneForView(const VolumeBuffer& volume, ViewType view, int index) {
+    const DicomMetaData& meta = volume.getMetadata();
+    Vector3D origin(meta.imagePosition[0], meta.imagePosition[1], meta.imagePosition[2]);
+    Vector3D r(meta.imageOrientation[0], meta.imageOrientation[1], meta.imageOrientation[2]);
+    Vector3D c(meta.imageOrientation[3], meta.imageOrientation[4], meta.imageOrientation[5]);
+    Vector3D n = r.cross(c).normalize();
+
+    double spaceX = meta.pixel_spacing_x;
+    double spaceY = meta.pixel_spacing_y;
+    double spaceZ = meta.pixel_spacing_z;
+
+    if (view == ViewType::AXIAL) {
+        // Plane moves along normal (Z).
+        return Plane(origin - n * (index * spaceZ), r, c);
+    } else if (view == ViewType::CORONAL) {
+        // Plane moves along Column vector (Y)
+        return Plane(origin - c * (index * spaceY), r, n);
+    } else if (view == ViewType::SAGITTAL) {
+        // Plane moves along Row vector (X)
+        return Plane(origin - r * (index * spaceX), c, n);
+    }
+    return Plane(origin, r, c);
+}
+
+bool GeometryUtils::getScoutLine(
+    const VolumeBuffer& volume,
+    ViewType scoutView,
+    int scoutIndex,
+    ViewType targetView,
+    int targetIndex,
+    Point2D& p1, Point2D& p2
+) {
+    Plane refPlane = getPlaneForView(volume, scoutView, scoutIndex);
+    Plane tgtPlane = getPlaneForView(volume, targetView, targetIndex);
+
+    Line3D intersection;
+    if (!intersectPlanes(refPlane, tgtPlane, intersection)) return false;
+
+    const DicomMetaData& meta = volume.getMetadata();
+    double sX = 1.0, sY = 1.0;
+
+    // Determine pixel spacing for the scout view projection
+    if (scoutView == ViewType::AXIAL) { sX = meta.pixel_spacing_x; sY = meta.pixel_spacing_y; }
+    else if (scoutView == ViewType::CORONAL) { sX = meta.pixel_spacing_x; sY = meta.pixel_spacing_z; }
+    else if (scoutView == ViewType::SAGITTAL) { sX = meta.pixel_spacing_y; sY = meta.pixel_spacing_z; }
+
+    auto project = [&](const Vector3D& p) {
+        Vector3D d = p - refPlane.origin;
+        double x = d.dot(refPlane.rowVector) / sX;
+        double y = d.dot(refPlane.colVector) / sY;
+        
+        int outW, outH;
+        const DicomMetaData& meta = volume.getMetadata();
+        double physicalDepth = volume.getSliceCount() * meta.pixel_spacing_z;
+
+        if (scoutView == ViewType::CORONAL) outH = static_cast<int>(std::round(physicalDepth / meta.pixel_spacing_y));
+        else if (scoutView == ViewType::SAGITTAL) outH = static_cast<int>(std::round(physicalDepth / meta.pixel_spacing_x));
+        else outH = meta.height;
+
+        return Point2D{ x, (double)outH - 1.0 - y };
+    };
+
+    // Calculate two points on the line within reasonable bounds
+    p1 = project(intersection.point - intersection.direction * 1000.0);
+    p2 = project(intersection.point + intersection.direction * 1000.0);
+
+    return true;
 }

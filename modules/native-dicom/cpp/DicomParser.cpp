@@ -100,6 +100,38 @@ bool DicomParser::parseDataset() {
         }
     }
 
+    // Instance Number (0020, 0013) - Critical for matching web viewer order
+    gdcm::Tag instanceTag(0x0020, 0x0013);
+    if (ds.FindDataElement(instanceTag)) {
+        const gdcm::DataElement &de = ds.GetDataElement(instanceTag);
+        if (!de.IsEmpty() && de.GetByteValue()) {
+            gdcm::Attribute<0x0020, 0x0013> at;
+            at.SetFromDataElement(de);
+            meta_data.instanceNumber = at.GetValue();
+        }
+    }
+
+    // Default Windowing (0028, 1050) and (0028, 1051)
+    gdcm::Tag windowCenterTag(0x0028, 0x1050);
+    if (ds.FindDataElement(windowCenterTag)) {
+        const gdcm::DataElement &de = ds.GetDataElement(windowCenterTag);
+        if (!de.IsEmpty() && de.GetByteValue()) {
+            gdcm::Attribute<0x0028, 0x1050> at;
+            at.SetFromDataElement(de);
+            meta_data.windowCenter = at.GetValue();
+        }
+    }
+
+    gdcm::Tag windowWidthTag(0x0028, 0x1051);
+    if (ds.FindDataElement(windowWidthTag)) {
+        const gdcm::DataElement &de = ds.GetDataElement(windowWidthTag);
+        if (!de.IsEmpty() && de.GetByteValue()) {
+            gdcm::Attribute<0x0028, 0x1051> at;
+            at.SetFromDataElement(de);
+            meta_data.windowWidth = at.GetValue();
+        }
+    }
+
     // Physical Spacing (Used for 3D sorting and Anisotropy Correction)
     const double* origin = image.GetOrigin();
     if (origin) {
