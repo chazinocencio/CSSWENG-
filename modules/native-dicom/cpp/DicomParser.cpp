@@ -111,6 +111,27 @@ bool DicomParser::parseDataset() {
         }
     }
 
+    // Rescale Slope/Intercept (0028, 1052/1053) - Vital for correct brightness
+    gdcm::Tag interceptTag(0x0028, 0x1052);
+    if (ds.FindDataElement(interceptTag)) {
+        const gdcm::DataElement &de = ds.GetDataElement(interceptTag);
+        if (!de.IsEmpty() && de.GetByteValue()) {
+            gdcm::Attribute<0x0028, 0x1052> at;
+            at.SetFromDataElement(de);
+            meta_data.rescaleIntercept = at.GetValue();
+        }
+    }
+
+    gdcm::Tag slopeTag(0x0028, 0x1053);
+    if (ds.FindDataElement(slopeTag)) {
+        const gdcm::DataElement &de = ds.GetDataElement(slopeTag);
+        if (!de.IsEmpty() && de.GetByteValue()) {
+            gdcm::Attribute<0x0028, 0x1053> at;
+            at.SetFromDataElement(de);
+            meta_data.rescaleSlope = at.GetValue();
+        }
+    }
+
     // Default Windowing (0028, 1050) and (0028, 1051)
     gdcm::Tag windowCenterTag(0x0028, 0x1050);
     if (ds.FindDataElement(windowCenterTag)) {

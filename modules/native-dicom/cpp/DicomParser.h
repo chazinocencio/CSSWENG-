@@ -29,6 +29,10 @@ struct DicomMetaData {
     std::string photometricInterpretation = ""; // e.g., MONOCHROME2, RGB
     int32_t instanceNumber = 0; // (0020, 0013) Acquisition order
 
+    // Rescale values for correct Hounsfield Unit (HU) calibration
+    double rescaleIntercept = 0.0; // (0028, 1052)
+    double rescaleSlope = 1.0;     // (0028, 1053)
+
     // Spatial metadata for anatomical alignment
     double imagePosition[3] = {0.0, 0.0, 0.0};    // (0020,0032) x, y, z
     double imageOrientation[6] = {1.0, 0.0, 0.0, 0.0, 1.0, 0.0}; // (0020,0037) direction cosines

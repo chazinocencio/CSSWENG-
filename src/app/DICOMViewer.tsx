@@ -40,13 +40,19 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
     const [seriesPlaybackEnabled, setSeriesPlaybackEnabled] = useState<boolean>(false);
     const [isLoadingSeries, setIsLoadingSeries] = useState<boolean>(false);
 
-    // Standard "Abdominal/Soft Tissue" window for seeing internal organs clearly
+    // Contrast Limits & State
+    const MIN_WW = 1;
+    const MAX_WW = 3000;
+    const MIN_WL = -1500;
+    const MAX_WL = 1500;
+
     const [windowWidth, setWindowWidth] = useState(400);
     const [windowCenter, setWindowCenter] = useState(50);
+    const [trackWidth, setTrackWidth] = useState(100);
 
-    //Patient Name and sex
-    const [patientName, setPatientName] = useState("")
-    const [patientSex, setPatientSex] = useState("")
+    // Patient Name and sex
+    const [patientName, setPatientName] = useState("");
+    const [patientSex, setPatientSex] = useState("");
 
     // Scout Rendering States
     const [scoutImage, setScoutImage] = useState<SkImage | null>(null);
@@ -66,9 +72,15 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
              const temp = new Int32Array(pixelCount);
              let min = Infinity; let max = -Infinity;
 
+             const intercept = metadata.rescaleIntercept ?? metadata.rescale_intercept ?? 0;
+             const slope = metadata.rescaleSlope ?? metadata.rescale_slope ?? 1;
+
              for (let i = 0; i < pixelCount; i++) {
                 let val = (frame_pixels[i * 2 + 1] << 8) | frame_pixels[i * 2];
                 if (metadata.pixelRepresentation === 1 && (val & 0x8000)) val -= 65536;
+
+                val = (val * slope) + intercept;
+
                 temp[i] = val;
                 if (val > max) max = val; if (val < min) min = val;
              }
@@ -136,11 +148,18 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
           const orthoslice = instance.getOrthoSlice(mode, index, windowWidth, windowCenter);
 
           if (!orthoslice) return;
-          const md: any = { width: orthoslice.width, height: orthoslice.height, bitsAllocated: vmd.bitsAllocated, pixelRepresentation: vmd.pixelRepresentation };
+          const md: any = {
+             width: orthoslice.width,
+             height: orthoslice.height,
+             bitsAllocated: vmd.bitsAllocated,
+             pixelRepresentation: vmd.pixelRepresentation,
+             rescaleIntercept: vmd.rescaleIntercept,
+             rescaleSlope: vmd.rescaleSlope
+          };
           const img = getSkiaImage(md, orthoslice.pixelData);
 
-          setPatientName(vmd.patientName)
-          setPatientSex(vmd.patientSex)
+          setPatientName(vmd.patientName);
+          setPatientSex(vmd.patientSex);
           setImageInfo(img?.info ?? null);
           setImage(img?.image ?? null);
           setSeriesName(series);
@@ -160,12 +179,15 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
              if (scoutMode === 'SAGITTAL') scoutMaxIndex = vmd.width;
              const scoutIdx = Math.floor(scoutMaxIndex / 2);
 
-             // Only refresh scout image if series or settings change
              const scoutResult = instance.getOrthoSlice(scoutMode, scoutIdx, windowWidth, windowCenter);
              if (scoutResult) {
                 const sImg = getSkiaImage({
                    width: scoutResult.width,
                    height: scoutResult.height,
+                   bitsAllocated: vmd.bitsAllocated,
+                   pixelRepresentation: vmd.pixelRepresentation,
+                   rescaleIntercept: vmd.rescaleIntercept,
+                   rescaleSlope: vmd.rescaleSlope
                 } as any, scoutResult.pixelData);
                 setScoutImage(sImg?.image ?? null);
 
@@ -178,35 +200,38 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
        }
     };
 
-    // --- Interactive Scout Touch Navigation ---
+    const handleWWScrub = (evt: any) => {
+        const x = Math.max(0, Math.min(trackWidth, evt.nativeEvent.locationX));
+        const percentage = x / trackWidth;
+        setWindowWidth(MIN_WW + percentage * (MAX_WW - MIN_WW));
+    };
+
+    const handleWLScrub = (evt: any) => {
+        const x = Math.max(0, Math.min(trackWidth, evt.nativeEvent.locationX));
+        const percentage = x / trackWidth;
+        setWindowCenter(MIN_WL + percentage * (MAX_WL - MIN_WL));
+    };
+
     const handleScoutTouch = (evt: any) => {
         if (!scoutImage || !currentVolumeRef.current || !seriesName || maxSeriesIndex <= 1) return;
-
-        // Get the location relative to the scout view itself
         const touchY = evt.nativeEvent.locationY;
         const scoutWidth = 140;
         const scoutUIHeight = scoutWidth / (scoutImage.width() / scoutImage.height());
-
-        // Map touch position to a percentage (0.0 = top, 1.0 = bottom)
         const relativeY = Math.max(0, Math.min(1, touchY / scoutUIHeight));
-
-        // Direct mapping
         const newIndex = Math.floor(relativeY * (maxSeriesIndex - 1));
 
-        // Only trigger update if we actually jumped to a new frame
         if (newIndex !== seriesIndex - 1) {
             LoadSeries(seriesName, newIndex, 0, false);
         }
     };
-    // ------------------------------------------
 
     useEffect(() => {
        if (!ZIPContent && Content) {
           setImageInfo({ width: Content.width, height: Content.height, colorType: ColorType.Gray_8, alphaType: AlphaType.Opaque });
           setImage(dicomSkiaImage);
 
-          setPatientName(Content.patientName)
-          setPatientSex(Content.patientSex)
+          setPatientName(Content.patientName);
+          setPatientSex(Content.patientSex);
        } else if (ZIPContent) {
           const startingSeries = initialSeries || Object.keys(ZIPContent.folders)[0];
           LoadSeries(startingSeries, 0);
@@ -242,7 +267,6 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
        return <Text className="text-gray-500 mt-10">No image data to render.</Text>;
     };
 
-    // Calculate scout dimensions dynamically for clean rendering mapping
     const scoutWidth = 140;
     const scoutUIHeight = scoutImage ? scoutWidth / (scoutImage.width() / scoutImage.height()) : 140;
 
@@ -252,7 +276,7 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
           {sidebarOpen && (
              <View
                 style={{ paddingTop: insets.top + 16, paddingBottom: insets.bottom + 16 }}
-                className="absolute left-0 top-0 bottom-0 w-[220px] bg-black/90 p-4 z-50 shadow-2xl"
+                className="absolute left-0 top-0 bottom-0 w-[240px] bg-black/90 p-4 z-50 shadow-2xl"
              >
                 <Text className="text-white font-bold text-lg mb-4">Settings</Text>
 
@@ -264,16 +288,24 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
                         <Text className="text-white text-[10px]">WIDTH: {Math.round(windowWidth)}</Text>
                       </View>
                       <View className="flex-row items-center">
-                         <TouchableOpacity onPress={() => setWindowWidth(prev => Math.max(1, prev - 50))} className="bg-gray-700 p-1 rounded-l-md px-2 border-r border-gray-600"><Text className="text-white font-bold">-</Text></TouchableOpacity>
-                         <View className="flex-1 bg-gray-800 h-8 justify-center px-2">
-                            <View className="bg-gray-600 h-1 rounded-full relative">
+                         <TouchableOpacity onPress={() => setWindowWidth(prev => Math.max(MIN_WW, prev - 50))} className="bg-gray-700 p-2 rounded-l-md px-3 border-r border-gray-600"><Text className="text-white font-bold">-</Text></TouchableOpacity>
+
+                         <View
+                            className="flex-1 bg-gray-800 h-9 justify-center px-2"
+                            onLayout={(e) => setTrackWidth(e.nativeEvent.layout.width - 16)}
+                            onStartShouldSetResponder={() => true}
+                            onResponderGrant={handleWWScrub}
+                            onResponderMove={handleWWScrub}
+                         >
+                            <View className="bg-gray-600 h-1 rounded-full relative" pointerEvents="none">
                                 <View
-                                    style={{ left: `${Math.min(100, (windowWidth / 2000) * 100)}%` }}
-                                    className="absolute -top-1.5 w-3 h-3 bg-blue-500 rounded-full border-2 border-white"
+                                    style={{ left: `${Math.min(100, Math.max(0, ((windowWidth - MIN_WW) / (MAX_WW - MIN_WW)) * 100))}%` }}
+                                    className="absolute -top-1.5 w-4 h-4 -ml-2 bg-blue-500 rounded-full border-2 border-white"
                                 />
                             </View>
                          </View>
-                         <TouchableOpacity onPress={() => setWindowWidth(prev => Math.min(4000, prev + 50))} className="bg-gray-700 p-1 rounded-r-md px-2 border-l border-gray-600"><Text className="text-white font-bold">+</Text></TouchableOpacity>
+
+                         <TouchableOpacity onPress={() => setWindowWidth(prev => Math.min(MAX_WW, prev + 50))} className="bg-gray-700 p-2 rounded-r-md px-3 border-l border-gray-600"><Text className="text-white font-bold">+</Text></TouchableOpacity>
                       </View>
                    </View>
 
@@ -282,48 +314,49 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
                         <Text className="text-white text-[10px]">LEVEL: {Math.round(windowCenter)}</Text>
                       </View>
                       <View className="flex-row items-center">
-                         <TouchableOpacity onPress={() => setWindowCenter(prev => prev - 20)} className="bg-gray-700 p-1 rounded-l-md px-2 border-r border-gray-600"><Text className="text-white font-bold">-</Text></TouchableOpacity>
-                         <View className="flex-1 bg-gray-800 h-8 justify-center px-2">
-                            <View className="bg-gray-600 h-1 rounded-full relative">
+                         <TouchableOpacity onPress={() => setWindowCenter(prev => Math.max(MIN_WL, prev - 20))} className="bg-gray-700 p-2 rounded-l-md px-3 border-r border-gray-600"><Text className="text-white font-bold">-</Text></TouchableOpacity>
+
+                         <View
+                            className="flex-1 bg-gray-800 h-9 justify-center px-2"
+                            onStartShouldSetResponder={() => true}
+                            onResponderGrant={handleWLScrub}
+                            onResponderMove={handleWLScrub}
+                         >
+                            <View className="bg-gray-600 h-1 rounded-full relative" pointerEvents="none">
                                 <View
-                                    style={{ left: `${Math.min(100, Math.max(0, ((windowCenter + 1000) / 2000) * 100))}%` }}
-                                    className="absolute -top-1.5 w-3 h-3 bg-orange-500 rounded-full border-2 border-white"
+                                    style={{ left: `${Math.min(100, Math.max(0, ((windowCenter - MIN_WL) / (MAX_WL - MIN_WL)) * 100))}%` }}
+                                    className="absolute -top-1.5 w-4 h-4 -ml-2 bg-orange-500 rounded-full border-2 border-white"
                                 />
                             </View>
                          </View>
-                         <TouchableOpacity onPress={() => setWindowCenter(prev => prev + 20)} className="bg-gray-700 p-1 rounded-r-md px-2 border-l border-gray-600"><Text className="text-white font-bold">+</Text></TouchableOpacity>
+
+                         <TouchableOpacity onPress={() => setWindowCenter(prev => Math.min(MAX_WL, prev + 20))} className="bg-gray-700 p-2 rounded-r-md px-3 border-l border-gray-600"><Text className="text-white font-bold">+</Text></TouchableOpacity>
                       </View>
                    </View>
 
                    <View className="flex-row flex-wrap gap-2">
-                      <TouchableOpacity
-                         onPress={() => { setWindowWidth(4000); setWindowCenter(500); }}
-                         className="bg-blue-600/30 px-2 py-1 rounded-md border border-blue-500/50"
-                      >
-                         <Text className="text-blue-400 text-[9px] font-bold">ORGANS</Text>
+                      <TouchableOpacity onPress={() => { setWindowWidth(400); setWindowCenter(50); }} className="bg-blue-600/30 px-2 py-1 rounded-md border border-blue-500/50">
+                         <Text className="text-blue-400 text-[10px] font-bold">ORGANS</Text>
                       </TouchableOpacity>
-
-                      <TouchableOpacity
-                         onPress={() => { setWindowWidth(1500); setWindowCenter(450); }}
-                         className="bg-orange-600/30 px-2 py-1 rounded-md border border-orange-500/50"
-                      >
-                         <Text className="text-orange-400 text-[9px] font-bold">BONE</Text>
+                      <TouchableOpacity onPress={() => { setWindowWidth(1500); setWindowCenter(450); }} className="bg-orange-600/30 px-2 py-1 rounded-md border border-orange-500/50">
+                         <Text className="text-orange-400 text-[10px] font-bold">BONE</Text>
                       </TouchableOpacity>
-
-                      <TouchableOpacity
-                         onPress={() => { setWindowWidth(1500); setWindowCenter(-600); }}
-                         className="bg-green-600/30 px-2 py-1 rounded-md border border-green-500/50"
-                      >
-                         <Text className="text-green-400 text-[9px] font-bold">LUNGS</Text>
+                      <TouchableOpacity onPress={() => { setWindowWidth(1500); setWindowCenter(-600); }} className="bg-green-600/30 px-2 py-1 rounded-md border border-green-500/50">
+                         <Text className="text-green-400 text-[10px] font-bold">LUNGS</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => { setWindowWidth(80); setWindowCenter(40); }} className="bg-purple-600/30 px-2 py-1 rounded-md border border-purple-500/50">
+                         <Text className="text-purple-400 text-[10px] font-bold">BRAIN</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => { setWindowWidth(600); setWindowCenter(300); }} className="bg-red-600/30 px-2 py-1 rounded-md border border-red-500/50">
+                         <Text className="text-red-400 text-[10px] font-bold">ANGIO</Text>
                       </TouchableOpacity>
                    </View>
                 </View>
 
-                {/* Series Selection */}
                 {ZIPContent && (
-                   <View className="mb-4">
+                   <View className="mb-4 flex-1">
                       <Text className="text-gray-400 mb-2 text-sm uppercase font-bold">Series</Text>
-                      <ScrollView className="max-h-[200px] bg-gray-800/50 rounded-lg p-1">
+                      <ScrollView className="bg-gray-800/50 rounded-lg p-1">
                          {Object.keys(ZIPContent.folders).map((folder) => (
                             <TouchableOpacity
                                key={folder}
@@ -359,9 +392,8 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
 
           {/* MAIN VIEWING AREA */}
           <View className="flex-1 justify-center items-center relative">
-             {/* TOP PATIENT OVERLAY */}
-               {patientName && patientSex &&(
-                  <View 
+             {patientName && patientSex && (
+                  <View
                      pointerEvents="none"
                      style={{ top: insets.top + 12 }}
                      className="absolute z-30 bg-black/60 px-4 py-1.5 rounded-full border border-gray-800/80 items-center"
@@ -371,16 +403,15 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
                      </Text>
                   </View>
                )}
-             {/* Top Left Sidebar Toggle */}
+
              <TouchableOpacity
                 onPress={() => setSidebarOpen(!sidebarOpen)}
-                style={{ top: insets.top + 10, left: sidebarOpen ? 170 : 16 }}
+                style={{ top: insets.top + 10, left: sidebarOpen ? 190 : 16 }}
                 className="absolute z-[60] bg-gray-800 p-2 rounded-full"
              >
                 {sidebarOpen ? <X color="white" size={20} /> : <Menu color="white" />}
              </TouchableOpacity>
 
-             {/* Top Right Scout Toggle */}
              <TouchableOpacity
                 onPress={() => setScoutOpen(!scoutOpen)}
                 style={{ top: insets.top + 10 }}
@@ -389,7 +420,6 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
                 {scoutOpen ? <X color="white" /> : <Plus color="white" />}
              </TouchableOpacity>
 
-             {/* Scout Image Overlay */}
              {scoutOpen && scoutImage && (
                 <View
                     onStartShouldSetResponder={() => true}
@@ -403,15 +433,8 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
                     }}
                     className="absolute right-4 bg-black border-2 border-orange-500 rounded-lg overflow-hidden z-20 shadow-lg"
                 >
-                   <Canvas
-                        pointerEvents="none"
-                        style={{ width: '100%', height: '100%' }}
-                    >
-                      <SkiaImage
-                        image={scoutImage}
-                        fit="fill"
-                        x={0} y={0} width={scoutWidth} height={scoutUIHeight}
-                      />
+                   <Canvas pointerEvents="none" style={{ width: '100%', height: '100%' }}>
+                      <SkiaImage image={scoutImage} fit="fill" x={0} y={0} width={scoutWidth} height={scoutUIHeight} />
                       {scoutLine && (
                         <Line
                             p1={{
@@ -422,8 +445,7 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
                                 x: (scoutLine.p2.x / scoutImage.width()) * scoutWidth,
                                 y: (scoutLine.p2.y / scoutImage.height()) * scoutUIHeight
                             }}
-                            color="orange"
-                            strokeWidth={2}
+                            color="orange" strokeWidth={2}
                         />
                       )}
                    </Canvas>
@@ -434,7 +456,6 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
                 {RenderSkia()}
              </ScrollView>
 
-             {/* Playback Controls */}
              {ZIPContent && seriesName && (
                 <View className="absolute bottom-10 flex-row p-2 bg-gray-800/80 rounded-2xl items-center">
                    <Pressable className={`justify-center m-2 p-3 rounded-full ${seriesPlaybackEnabled ? 'bg-blue-500' : 'bg-orange-500'}`}

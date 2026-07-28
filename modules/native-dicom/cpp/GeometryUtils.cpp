@@ -53,6 +53,9 @@ bool GeometryUtils::sampleOrthoView(
     double spaceY = meta.pixel_spacing_y > 0 ? meta.pixel_spacing_y : 1.0;
     double spaceZ = meta.pixel_spacing_z > 0 ? meta.pixel_spacing_z : 1.0;
 
+    double intercept = meta.rescaleIntercept;
+    double slope = meta.rescaleSlope;
+
     // Windowing Mapping Prep
     double low = windowCenter - windowWidth / 2.0;
     double high = windowCenter + windowWidth / 2.0;
@@ -60,7 +63,10 @@ bool GeometryUtils::sampleOrthoView(
     if (range < 1.0) range = 1.0;
 
     auto mapPixel = [&](int16_t raw) -> uint8_t {
-        double val = ((double)raw - low) / range * 255.0;
+        double hu = ((double)raw * slope) + intercept;
+
+        double val = (hu - low) / range * 255.0;
+
         if (val < 0) return 0;
         if (val > 255) return 255;
         return (uint8_t)val;

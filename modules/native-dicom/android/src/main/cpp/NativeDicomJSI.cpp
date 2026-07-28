@@ -121,6 +121,9 @@ Value VolumeJSI::get(Runtime &runtime, const PropNameID &name) {
             res.setProperty(rt, "windowWidth", (double)meta.windowWidth);
             res.setProperty(rt, "windowCenter", (double)meta.windowCenter);
 
+            res.setProperty(rt, "rescaleIntercept", (double)meta.rescaleIntercept);
+            res.setProperty(rt, "rescaleSlope", (double)meta.rescaleSlope);
+
             //Patient Data Information
             res.setProperty(rt, "patientName", String::createFromUtf8(rt, meta.patientName));
             res.setProperty(rt, "patientSex", String::createFromUtf8(rt, meta.patientSex));
