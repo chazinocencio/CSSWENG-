@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AlphaType, Canvas, ColorType, Line, Skia, Image as SkiaImage, SkImage } from '@shopify/react-native-skia';
 import { createVolumeJSI, DicomMetaData, VolumeJSI } from '../../modules/native-dicom';
+import ZoomableDicomCanvas from '../components/ZoomableDicomCanvas';
 
 interface DICOMViewerProps {
     Content: any;
@@ -213,17 +214,13 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
        const targetImage = image;
        const targetInfo = imageInfo;
        if (targetImage && targetInfo && targetInfo.width > 0) {
-          const w = width;
-          const h = (targetInfo.height / targetInfo.width) * w;
           return (
-             <Canvas style={{ width: w, height: h }}>
-                <SkiaImage
-                   image={targetImage}
-                   fit="contain"
-                   x={0} y={0}
-                   width={w} height={h}
-                />
-             </Canvas>
+             <ZoomableDicomCanvas
+                image={targetImage}
+                imageWidth={targetInfo.width}
+                imageHeight={targetInfo.height}
+                containerWidth={width}
+             />
           );
        }
        return <Text className="text-gray-500 mt-10">No image data to render.</Text>;
@@ -337,12 +334,6 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
                       ))}
                    </View>
                 )}
-                <TouchableOpacity className="bg-gray-800 p-2 rounded-md mb-2">
-                   <Text className="text-white text-center text-xs">Zoom / Pan</Text>
-                </TouchableOpacity>
-                <TouchableOpacity className="bg-gray-800 p-2 rounded-md mb-2">
-                   <Text className="text-white text-center text-xs">Invert Colors</Text>
-                </TouchableOpacity>
 
                 <TouchableOpacity onPress={onClose} className="mt-auto bg-red-600 p-3 rounded-lg">
                    <Text className="text-white font-bold text-center">Close Viewer</Text>
