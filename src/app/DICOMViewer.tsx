@@ -44,6 +44,10 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
     const [windowWidth, setWindowWidth] = useState(400);
     const [windowCenter, setWindowCenter] = useState(50);
 
+    //Patient Name and sex
+    const [patientName, setPatientName] = useState("")
+    const [patientSex, setPatientSex] = useState("")
+
     // Scout Rendering States
     const [scoutImage, setScoutImage] = useState<SkImage | null>(null);
     const [scoutLine, setScoutLine] = useState<{ p1: { x: number, y: number }, p2: { x: number, y: number } } | null>(null);
@@ -126,6 +130,8 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
           const md: any = { width: orthoslice.width, height: orthoslice.height, bitsAllocated: vmd.bitsAllocated, pixelRepresentation: vmd.pixelRepresentation };
           const img = getSkiaImage(md, orthoslice.pixelData);
 
+          setPatientName(vmd.patientName)
+          setPatientSex(vmd.patientSex)
           setImageInfo(img?.info ?? null);
           setImage(img?.image ?? null);
           setSeriesName(series);
@@ -142,7 +148,7 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
           if (instance.getScoutLine) {
              const scoutMode = mode === 'SAGITTAL' ? 'AXIAL' : 'SAGITTAL';
              let scoutMaxIndex = vmd.sliceCount;
-             if (scoutMode === 'CORONAL') scoutMaxIndex = vmd.height;
+            //  if (scoutMode === 'CORONAL') scoutMaxIndex = vmd.height;
              if (scoutMode === 'SAGITTAL') scoutMaxIndex = vmd.width;
              const scoutIdx = Math.floor(scoutMaxIndex / 2);
 
@@ -191,6 +197,9 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
        if (!ZIPContent && Content) {
           setImageInfo({ width: Content.width, height: Content.height, colorType: ColorType.Gray_8, alphaType: AlphaType.Opaque });
           setImage(dicomSkiaImage);
+
+          setPatientName(Content.patientName)
+          setPatientSex(Content.patientSex)
        } else if (ZIPContent) {
           const startingSeries = initialSeries || Object.keys(ZIPContent.folders)[0];
           LoadSeries(startingSeries, 0);
@@ -343,6 +352,18 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
 
           {/* MAIN VIEWING AREA */}
           <View className="flex-1 justify-center items-center relative">
+             {/* TOP PATIENT OVERLAY */}
+               {patientName && patientSex &&(
+                  <View 
+                     pointerEvents="none"
+                     style={{ top: insets.top + 12 }}
+                     className="absolute z-30 bg-black/60 px-4 py-1.5 rounded-full border border-gray-800/80 items-center"
+                  >
+                     <Text className="text-white text-md font-semibold tracking-wide">
+                        {patientName} <Text className="text-gray-400">({patientSex})</Text>
+                     </Text>
+                  </View>
+               )}
              {/* Top Left Sidebar Toggle */}
              <TouchableOpacity
                 onPress={() => setSidebarOpen(!sidebarOpen)}

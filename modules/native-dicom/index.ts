@@ -40,6 +40,8 @@ export interface VolumeJSI {
     sliceThickness: number;
     bitsAllocated: number;
     pixelRepresentation: number;
+    windowWidth: number;
+    windowCenter: number;
     patientName: string;
     patientSex: string;
   };
