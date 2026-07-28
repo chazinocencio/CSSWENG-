@@ -68,15 +68,11 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
 
              const range = max - min || 1;
 
-             /*
-              * WINDOW / LEVEL MAPPING LOGIC
-              */
              const low = windowCenter - windowWidth / 2;
              const high = windowCenter + windowWidth / 2;
 
              for (let i = 0; i < pixel_count; i++) {
                 const pixel = temp[i];
-                // Contrast Mapping to 0-255 range
                 const val = Math.max(0, Math.min(255, ((pixel - low) / (high - low)) * 255));
                 canvas[i] = Math.floor(val);
              }
@@ -102,7 +98,6 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
           const uri = `${ZIPContent.cache}${series !== '/' ? series + '/' : ''}`;
 
           let instance;
-          // IMPORTANT: Check if the series has actually changed. If uri is different, we MUST re-create the volume.
           if (currentVolumeRef.current && currentVolumeRef.current.uri === uri) {
              instance = currentVolumeRef.current.instance;
           } else {
@@ -138,18 +133,13 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
           setFrameIndex(1);
           setSeriesPlaybackEnabled(playback);
 
-          // Use default windowing from series metadata if available
-          // ONLY set this if we are loading a NEW series to prevent resetting user adjustments
           if (vmd.windowWidth && vmd.windowCenter && currentVolumeRef.current?.uri !== uri) {
              setWindowWidth(vmd.windowWidth);
              setWindowCenter(vmd.windowCenter);
           }
 
-          // Update Scout View
           if (instance.getScoutLine) {
              const scoutMode = mode === 'SAGITTAL' ? 'AXIAL' : 'SAGITTAL';
-
-             // Use middle slice as scout reference to show centered anatomy
              let scoutMaxIndex = vmd.sliceCount;
              if (scoutMode === 'CORONAL') scoutMaxIndex = vmd.height;
              if (scoutMode === 'SAGITTAL') scoutMaxIndex = vmd.width;
@@ -174,6 +164,28 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
        }
     };
 
+    // --- Interactive Scout Touch Navigation ---
+    const handleScoutTouch = (evt: any) => {
+        if (!scoutImage || !currentVolumeRef.current || !seriesName || maxSeriesIndex <= 1) return;
+
+        // Get the location relative to the scout view itself
+        const touchY = evt.nativeEvent.locationY;
+        const scoutWidth = 140;
+        const scoutUIHeight = scoutWidth / (scoutImage.width() / scoutImage.height());
+
+        // Map touch position to a percentage (0.0 = top, 1.0 = bottom)
+        const relativeY = Math.max(0, Math.min(1, touchY / scoutUIHeight));
+
+        // Direct mapping
+        const newIndex = Math.floor(relativeY * (maxSeriesIndex - 1));
+
+        // Only trigger update if we actually jumped to a new frame
+        if (newIndex !== seriesIndex - 1) {
+            LoadSeries(seriesName, newIndex, 0, false);
+        }
+    };
+    // ------------------------------------------
+
     useEffect(() => {
        if (!ZIPContent && Content) {
           setImageInfo({ width: Content.width, height: Content.height, colorType: ColorType.Gray_8, alphaType: AlphaType.Opaque });
@@ -193,7 +205,6 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
        }
     }, [seriesPlaybackEnabled, image]);
 
-    // Re-render when Window/Level changes
     useEffect(() => {
        if (seriesName) LoadSeries(seriesName, seriesIndex - 1, frameIndex - 1, false);
     }, [windowWidth, windowCenter]);
@@ -202,7 +213,7 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
        const targetImage = image;
        const targetInfo = imageInfo;
        if (targetImage && targetInfo && targetInfo.width > 0) {
-          const w = width; // Take full width now that sidebar is overlay
+          const w = width;
           const h = (targetInfo.height / targetInfo.width) * w;
           return (
              <Canvas style={{ width: w, height: h }}>
@@ -217,6 +228,10 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
        }
        return <Text className="text-gray-500 mt-10">No image data to render.</Text>;
     };
+
+    // Calculate scout dimensions dynamically for clean rendering mapping
+    const scoutWidth = 140;
+    const scoutUIHeight = scoutImage ? scoutWidth / (scoutImage.width() / scoutImage.height()) : 140;
 
     return (
        <View className="flex-1 bg-black relative">
@@ -358,28 +373,35 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
              {/* Scout Image Overlay */}
              {scoutOpen && scoutImage && (
                 <View
+                    onStartShouldSetResponder={() => true}
+                    onResponderGrant={handleScoutTouch}
+                    onResponderMove={handleScoutTouch}
                     style={{
                         top: insets.top + 60,
-                        width: 140,
+                        width: scoutWidth,
+                        height: scoutUIHeight,
                         aspectRatio: scoutImage.width() / scoutImage.height()
                     }}
                     className="absolute right-4 bg-black border-2 border-orange-500 rounded-lg overflow-hidden z-20 shadow-lg"
                 >
-                   <Canvas style={{ width: '100%', height: '100%' }}>
+                   <Canvas
+                        pointerEvents="none"
+                        style={{ width: '100%', height: '100%' }}
+                    >
                       <SkiaImage
                         image={scoutImage}
                         fit="fill"
-                        x={0} y={0} width={140} height={140 / (scoutImage.width() / scoutImage.height())}
+                        x={0} y={0} width={scoutWidth} height={scoutUIHeight}
                       />
                       {scoutLine && (
                         <Line
                             p1={{
-                                x: (scoutLine.p1.x / scoutImage.width()) * 140,
-                                y: (scoutLine.p1.y / scoutImage.height()) * (140 / (scoutImage.width() / scoutImage.height()))
+                                x: (scoutLine.p1.x / scoutImage.width()) * scoutWidth,
+                                y: (scoutLine.p1.y / scoutImage.height()) * scoutUIHeight
                             }}
                             p2={{
-                                x: (scoutLine.p2.x / scoutImage.width()) * 140,
-                                y: (scoutLine.p2.y / scoutImage.height()) * (140 / (scoutImage.width() / scoutImage.height()))
+                                x: (scoutLine.p2.x / scoutImage.width()) * scoutWidth,
+                                y: (scoutLine.p2.y / scoutImage.height()) * scoutUIHeight
                             }}
                             color="orange"
                             strokeWidth={2}
