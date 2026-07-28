@@ -75,7 +75,7 @@ bool GeometryUtils::sampleOrthoView(
         outBuffer.resize(outW * outH * bpp);
 
         for (int y = 0; y < outH; ++y) {
-            // Flip Y for medical orientation: top of screen (y=0) maps to max physical Z (head)
+            // Standard mapping: top of screen (y=0) maps to first slice (Head)
             double mappedZ = (double)y * (physicalDepth / outH) / spaceZ;
             int z0 = std::clamp(static_cast<int>(std::floor(mappedZ)), 0, S - 1);
             int z1 = std::clamp(z0 + 1, 0, S - 1);
@@ -114,7 +114,7 @@ bool GeometryUtils::sampleOrthoView(
         outBuffer.resize(outW * outH * bpp);
 
         for (int y = 0; y < outH; ++y) {
-            // Head-at-top orientation flip
+            // Direct mapping: top of screen (y=0) is top of volume
             double mappedZ = (double)y * (physicalDepth / outH) / spaceZ;
             int z0 = std::clamp(static_cast<int>(std::floor(mappedZ)), 0, S - 1);
             int z1 = std::clamp(z0 + 1, 0, S - 1);
@@ -172,12 +172,12 @@ Plane GeometryUtils::getPlaneForView(const VolumeBuffer& volume, ViewType view, 
 }
 
 bool GeometryUtils::getScoutLine(
-    const VolumeBuffer& volume,
-    ViewType scoutView,
-    int scoutIndex,
-    ViewType targetView,
-    int targetIndex,
-    Point2D& p1, Point2D& p2
+        const VolumeBuffer& volume,
+        ViewType scoutView,
+        int scoutIndex,
+        ViewType targetView,
+        int targetIndex,
+        Point2D& p1, Point2D& p2
 ) {
     Plane refPlane = getPlaneForView(volume, scoutView, scoutIndex);
     Plane tgtPlane = getPlaneForView(volume, targetView, targetIndex);
@@ -196,17 +196,29 @@ bool GeometryUtils::getScoutLine(
     auto project = [&](const Vector3D& p) {
         Vector3D d = p - refPlane.origin;
         double x = d.dot(refPlane.rowVector) / sX;
-        double y = d.dot(refPlane.colVector) / sY;
-        
-        int outW, outH;
-        const DicomMetaData& meta = volume.getMetadata();
+
+        // Get the raw physical distance in mm
+        double y_physical = d.dot(refPlane.colVector);
+
         double physicalDepth = volume.getSliceCount() * meta.pixel_spacing_z;
+        double y_pixel = 0.0;
 
-        if (scoutView == ViewType::CORONAL) outH = static_cast<int>(std::round(physicalDepth / meta.pixel_spacing_y));
-        else if (scoutView == ViewType::SAGITTAL) outH = static_cast<int>(std::round(physicalDepth / meta.pixel_spacing_x));
-        else outH = meta.height;
+        // Correctly map the physical distance to the MPR generated pixel height
+        if (scoutView == ViewType::CORONAL) {
+            int outH = static_cast<int>(std::round(physicalDepth / meta.pixel_spacing_y));
+            y_pixel = (y_physical / physicalDepth) * outH;
+        }
+        else if (scoutView == ViewType::SAGITTAL) {
+            int outH = static_cast<int>(std::round(physicalDepth / meta.pixel_spacing_x));
+            y_pixel = (y_physical / physicalDepth) * outH;
+        }
+        else {
+            y_pixel = y_physical / sY;
+        }
 
-        return Point2D{ x, (double)outH - 1.0 - y };
+        // Target planes move along -n direction (DOWN), so y_physical is negative.
+        // Inverting it gives us a positive Y pixel coordinate moving down the screen.
+        return Point2D{ x, -y_pixel };
     };
 
     // Calculate two points on the line within reasonable bounds
