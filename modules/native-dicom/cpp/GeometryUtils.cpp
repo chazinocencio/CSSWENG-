@@ -38,6 +38,8 @@ bool GeometryUtils::sampleOrthoView(
     const VolumeBuffer& volume,
     ViewType targetView,
     int sliceIndex,
+    double windowWidth,
+    double windowCenter,
     std::vector<uint8_t>& outBuffer,
     int& outW,
     int& outH
@@ -50,15 +52,32 @@ bool GeometryUtils::sampleOrthoView(
     double spaceX = meta.pixel_spacing_x > 0 ? meta.pixel_spacing_x : 1.0;
     double spaceY = meta.pixel_spacing_y > 0 ? meta.pixel_spacing_y : 1.0;
     double spaceZ = meta.pixel_spacing_z > 0 ? meta.pixel_spacing_z : 1.0;
-    int bpp = (meta.bits_allocated <= 8) ? 1 : 2;
 
-    // AXIAL: Natural order, direct copy
+    // Windowing Mapping Prep
+    double low = windowCenter - windowWidth / 2.0;
+    double high = windowCenter + windowWidth / 2.0;
+    double range = high - low;
+    if (range < 1.0) range = 1.0;
+
+    auto mapPixel = [&](int16_t raw) -> uint8_t {
+        double val = ((double)raw - low) / range * 255.0;
+        if (val < 0) return 0;
+        if (val > 255) return 255;
+        return (uint8_t)val;
+    };
+
+    // AXIAL: Natural order, direct copy with mapping
     if (targetView == ViewType::AXIAL) {
         if (sliceIndex < 0 || sliceIndex >= S) return false;
         const uint8_t* sliceData = volume.getSlice(sliceIndex);
         if (!sliceData) return false;
         outW = W; outH = H;
-        outBuffer.assign(sliceData, sliceData + (W * H * bpp));
+        outBuffer.resize(W * H);
+
+        const int16_t* raw16 = reinterpret_cast<const int16_t*>(sliceData);
+        for (int i = 0; i < W * H; ++i) {
+            outBuffer[i] = mapPixel(raw16[i]);
+        }
         return true;
     }
 
@@ -72,7 +91,7 @@ bool GeometryUtils::sampleOrthoView(
         outH = static_cast<int>(std::round(physicalDepth / spaceY));
         if (sliceIndex < 0 || sliceIndex >= H) return false;
 
-        outBuffer.resize(outW * outH * bpp);
+        outBuffer.resize(outW * outH);
 
         for (int y = 0; y < outH; ++y) {
             // Standard mapping: top of screen (y=0) maps to first slice (Head)
@@ -81,26 +100,12 @@ bool GeometryUtils::sampleOrthoView(
             int z1 = std::clamp(z0 + 1, 0, S - 1);
             double zWeight = mappedZ - std::floor(mappedZ);
 
-            const uint8_t *s0 = volume.getSlice(z0), *s1 = volume.getSlice(z1);
+            const int16_t *s0 = reinterpret_cast<const int16_t*>(volume.getSlice(z0));
+            const int16_t *s1 = reinterpret_cast<const int16_t*>(volume.getSlice(z1));
 
-            if (bpp == 2) {
-                const uint16_t *s0_16 = reinterpret_cast<const uint16_t*>(s0);
-                const uint16_t *s1_16 = reinterpret_cast<const uint16_t*>(s1);
-                uint16_t* out16 = reinterpret_cast<uint16_t*>(outBuffer.data());
-                for (int x = 0; x < W; ++x) {
-                    // Blend pixels from two adjacent Axial slices
-                    out16[y * W + x] = static_cast<uint16_t>(
-                        s0_16[sliceIndex * W + x] * (1.0 - zWeight) +
-                        s1_16[sliceIndex * W + x] * zWeight
-                    );
-                }
-            } else {
-                for (int x = 0; x < W; ++x) {
-                    outBuffer[y * W + x] = static_cast<uint8_t>(
-                        s0[sliceIndex * W + x] * (1.0 - zWeight) +
-                        s1[sliceIndex * W + x] * zWeight
-                    );
-                }
+            for (int x = 0; x < W; ++x) {
+                double raw = s0[sliceIndex * W + x] * (1.0 - zWeight) + s1[sliceIndex * W + x] * zWeight;
+                outBuffer[y * W + x] = mapPixel((int16_t)raw);
             }
         }
         return true;
@@ -111,7 +116,7 @@ bool GeometryUtils::sampleOrthoView(
         outH = static_cast<int>(std::round(physicalDepth / spaceX));
         if (sliceIndex < 0 || sliceIndex >= W) return false;
 
-        outBuffer.resize(outW * outH * bpp);
+        outBuffer.resize(outW * outH);
 
         for (int y = 0; y < outH; ++y) {
             // Direct mapping: top of screen (y=0) is top of volume
@@ -120,26 +125,13 @@ bool GeometryUtils::sampleOrthoView(
             int z1 = std::clamp(z0 + 1, 0, S - 1);
             double zWeight = mappedZ - std::floor(mappedZ);
 
-            const uint8_t *s0 = volume.getSlice(z0), *s1 = volume.getSlice(z1);
+            const int16_t *s0 = reinterpret_cast<const int16_t*>(volume.getSlice(z0));
+            const int16_t *s1 = reinterpret_cast<const int16_t*>(volume.getSlice(z1));
 
-            if (bpp == 2) {
-                const uint16_t *s0_16 = reinterpret_cast<const uint16_t*>(s0);
-                const uint16_t *s1_16 = reinterpret_cast<const uint16_t*>(s1);
-                uint16_t* out16 = reinterpret_cast<uint16_t*>(outBuffer.data());
-                for (int ax_y = 0; ax_y < H; ++ax_y) {
-                    // Sample vertical column across the Axial stack
-                    out16[y * outW + ax_y] = static_cast<uint16_t>(
-                        s0_16[ax_y * W + sliceIndex] * (1.0 - zWeight) +
-                        s1_16[ax_y * W + sliceIndex] * zWeight
-                    );
-                }
-            } else {
-                for (int ax_y = 0; ax_y < H; ++ax_y) {
-                    outBuffer[y * outW + ax_y] = static_cast<uint8_t>(
-                        s0[ax_y * W + sliceIndex] * (1.0 - zWeight) +
-                        s1[ax_y * W + sliceIndex] * zWeight
-                    );
-                }
+            for (int ax_y = 0; ax_y < H; ++ax_y) {
+                // Sample vertical column across the Axial stack
+                double raw = s0[ax_y * W + sliceIndex] * (1.0 - zWeight) + s1[ax_y * W + sliceIndex] * zWeight;
+                outBuffer[y * outW + ax_y] = mapPixel((int16_t)raw);
             }
         }
         return true;

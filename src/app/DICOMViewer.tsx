@@ -54,38 +54,47 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
 
     const currentVolumeRef = useRef<{ uri: string; instance: VolumeJSI; mode: 'AXIAL' | 'SAGITTAL' | 'CORONAL' } | null>(null);
 
-    const getSkiaImage = (metadata: DicomMetaData, frame_pixels: Uint8Array) => {
+    const getSkiaImage = (metadata: any, frame_pixels: Uint8Array) => {
        try {
           let buffer = frame_pixels;
-          if (metadata.bitsAllocated === 16) {
-             const pixel_count = metadata.width * metadata.height;
-             const canvas = new Uint8Array(pixel_count);
-             const temp = new Int32Array(pixel_count);
-             let min = Infinity;
-             let max = -Infinity;
-             for (let i = 0; i < pixel_count; i++) {
+          const pixelCount = metadata.width * metadata.height;
+
+          // If the buffer size is exactly width * height, it's already 8-bit from C++
+          // If it's width * height * 2, it's raw 16-bit data that needs mapping
+          if (frame_pixels.length === pixelCount * 2) {
+             const canvas = new Uint8Array(pixelCount);
+             const temp = new Int32Array(pixelCount);
+             let min = Infinity; let max = -Infinity;
+
+             for (let i = 0; i < pixelCount; i++) {
                 let val = (frame_pixels[i * 2 + 1] << 8) | frame_pixels[i * 2];
                 if (metadata.pixelRepresentation === 1 && (val & 0x8000)) val -= 65536;
                 temp[i] = val;
-                if (val > max) max = val;
-                if (val < min) min = val;
+                if (val > max) max = val; if (val < min) min = val;
              }
-
-             const range = max - min || 1;
 
              const low = windowCenter - windowWidth / 2;
              const high = windowCenter + windowWidth / 2;
 
-             for (let i = 0; i < pixel_count; i++) {
+             for (let i = 0; i < pixelCount; i++) {
                 const pixel = temp[i];
                 const val = Math.max(0, Math.min(255, ((pixel - low) / (high - low)) * 255));
                 canvas[i] = Math.floor(val);
              }
              buffer = canvas;
           }
+
           const skia_data = Skia.Data.fromBytes(buffer);
-          const skia_info: SkiaInfo = { width: metadata.width, height: metadata.height, colorType: ColorType.Gray_8, alphaType: AlphaType.Opaque };
-          return { info: { ...skia_info }, image: Skia.Image.MakeImage(skia_info, skia_data, metadata.width) };
+          const skia_info: SkiaInfo = {
+             width: metadata.width,
+             height: metadata.height,
+             colorType: ColorType.Gray_8,
+             alphaType: AlphaType.Opaque
+          };
+          return {
+             info: { ...skia_info },
+             image: Skia.Image.MakeImage(skia_info, skia_data, metadata.width)
+          };
        } catch (error: any) {
           return null;
        }
@@ -124,7 +133,7 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
           if (mode === 'SAGITTAL') max_index = vmd.width;
 
           const index = Math.min(Math.max(0, dicom_index), max_index - 1);
-          const orthoslice = instance.getOrthoSlice(mode, index);
+          const orthoslice = instance.getOrthoSlice(mode, index, windowWidth, windowCenter);
 
           if (!orthoslice) return;
           const md: any = { width: orthoslice.width, height: orthoslice.height, bitsAllocated: vmd.bitsAllocated, pixelRepresentation: vmd.pixelRepresentation };
@@ -146,19 +155,17 @@ export default function DICOMViewer({ Content, ZIPContent, TargetFile, onClose, 
           }
 
           if (instance.getScoutLine) {
-             const scoutMode = mode === 'SAGITTAL' ? 'AXIAL' : 'SAGITTAL';
+             const scoutMode: 'AXIAL' | 'CORONAL' | 'SAGITTAL' = mode === 'SAGITTAL' ? 'AXIAL' : 'SAGITTAL';
              let scoutMaxIndex = vmd.sliceCount;
-            //  if (scoutMode === 'CORONAL') scoutMaxIndex = vmd.height;
              if (scoutMode === 'SAGITTAL') scoutMaxIndex = vmd.width;
              const scoutIdx = Math.floor(scoutMaxIndex / 2);
 
-             const scoutResult = instance.getOrthoSlice(scoutMode, scoutIdx);
+             // Only refresh scout image if series or settings change
+             const scoutResult = instance.getOrthoSlice(scoutMode, scoutIdx, windowWidth, windowCenter);
              if (scoutResult) {
                 const sImg = getSkiaImage({
                    width: scoutResult.width,
                    height: scoutResult.height,
-                   bitsAllocated: vmd.bitsAllocated,
-                   pixelRepresentation: vmd.pixelRepresentation
                 } as any, scoutResult.pixelData);
                 setScoutImage(sImg?.image ?? null);
 

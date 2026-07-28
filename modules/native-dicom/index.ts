@@ -27,7 +27,7 @@ export interface DicomParserJSI {
 }
 
 export interface VolumeJSI {
-  getOrthoSlice(viewType: 'AXIAL' | 'CORONAL' | 'SAGITTAL', sliceIndex: number): {
+  getOrthoSlice(viewType: 'AXIAL' | 'CORONAL' | 'SAGITTAL', sliceIndex: number, windowWidth?: number, windowCenter?: number): {
     pixelData: Uint8Array;
     width: number;
     height: number;

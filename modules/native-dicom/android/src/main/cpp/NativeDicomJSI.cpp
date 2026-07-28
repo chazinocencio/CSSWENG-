@@ -87,6 +87,9 @@ Value VolumeJSI::get(Runtime &runtime, const PropNameID &name) {
         return Function::createFromHostFunction(runtime, name, 2, [this](Runtime &rt, const Value &thisVal, const Value *args, size_t count) -> Value {
             std::string viewStr = args[0].asString(rt).utf8(rt);
             int idx = (int)args[1].asNumber();
+            double ww = count > 2 ? args[2].asNumber() : 400.0;
+            double wc = count > 3 ? args[3].asNumber() : 50.0;
+
             GeometryUtils::ViewType vt = GeometryUtils::ViewType::UNKNOWN;
             if (viewStr == "AXIAL") vt = GeometryUtils::ViewType::AXIAL;
             else if (viewStr == "CORONAL") vt = GeometryUtils::ViewType::CORONAL;
@@ -94,7 +97,7 @@ Value VolumeJSI::get(Runtime &runtime, const PropNameID &name) {
 
             std::vector<uint8_t> pixels;
             int outW = 0, outH = 0;
-            if (!GeometryUtils::sampleOrthoView(*volume_, vt, idx, pixels, outW, outH)) return Value::null();
+            if (!GeometryUtils::sampleOrthoView(*volume_, vt, idx, ww, wc, pixels, outW, outH)) return Value::null();
 
             auto mb = std::make_shared<DicomMutableBuffer>(pixels.size());
             memcpy(mb->data(), pixels.data(), pixels.size());

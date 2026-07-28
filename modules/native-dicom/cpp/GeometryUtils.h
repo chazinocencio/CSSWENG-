@@ -50,6 +50,8 @@ public:
         const VolumeBuffer& volume,
         ViewType targetView,
         int sliceIndex,
+        double windowWidth,
+        double windowCenter,
         std::vector<uint8_t>& outBuffer,
         int& outW,
         int& outH
