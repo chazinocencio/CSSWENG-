@@ -7,12 +7,10 @@
     <list default="true" id="6580a2ac-9c5d-4b01-af7a-85c400921125" name="Changes" comment="feat: added jni and syncing with kotlin">
       <change beforePath="$PROJECT_DIR$/.idea/caches/deviceStreaming.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/caches/deviceStreaming.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/native-dicom/android/src/main/cpp/NativeDicomJSI.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/modules/native-dicom/android/src/main/cpp/NativeDicomJSI.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/native-dicom/cpp/DicomParser.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/modules/native-dicom/cpp/DicomParser.cpp" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/native-dicom/cpp/DicomParser.h" beforeDir="false" afterPath="$PROJECT_DIR$/modules/native-dicom/cpp/DicomParser.h" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/modules/native-dicom/index.ts" beforeDir="false" afterPath="$PROJECT_DIR$/modules/native-dicom/index.ts" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/app/index.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/index.tsx" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/components/DICOMContentModal.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/components/DICOMContentModal.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/app.json" beforeDir="false" afterPath="$PROJECT_DIR$/app.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/package-lock.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/app/DICOMViewer.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/src/app/DICOMViewer.tsx" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
