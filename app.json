@@ -37,7 +37,10 @@
         }
       ],
       "expo-asset",
-      "expo-image"
+      "expo-image",
+      "expo-font",
+      "expo-status-bar",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
